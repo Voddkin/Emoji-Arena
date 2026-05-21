@@ -156,6 +156,164 @@ const ADVENTURE_BOSSES = [
     { name: 'O Criador', hp: 100, avatar: '🌌', desc: 'Deck com LENDÁRIAS e MÍTICAS. Boa sorte.', deckFilter: c => c.rarity === RARITIES.LEGENDARY || c.rarity === RARITIES.MYTHIC, botLevel: 'expert' }
 ];
 
+
+// --- AUDIO CONTROLLER (SINGLETON) ---
+class AudioController {
+    constructor() {
+        if (AudioController.instance) {
+            return AudioController.instance;
+        }
+
+        // Load Settings
+        const savedAudio = JSON.parse(localStorage.getItem('cardWarsAudioPrefs') || '{}');
+        this.masterVolume = savedAudio.masterVolume !== undefined ? savedAudio.masterVolume : 1.0;
+        this.musicVolume = savedAudio.musicVolume !== undefined ? savedAudio.musicVolume : 0.8;
+        this.sfxVolume = savedAudio.sfxVolume !== undefined ? savedAudio.sfxVolume : 1.0;
+
+        // Assets Dictionary (URLs)
+        this.assets = {
+            bgm: {
+                bgm_menu: 'assets/audio/bgm_menu.mp3',
+                bgm_battle_normal: 'assets/audio/bgm_battle_normal.mp3',
+                bgm_battle_tension: 'assets/audio/bgm_battle_tension.mp3',
+                bgm_victory: 'assets/audio/bgm_victory.mp3',
+                bgm_defeat: 'assets/audio/bgm_defeat.mp3'
+            },
+            sfx: {
+                ui_hover: 'assets/audio/ui_hover.wav',
+                ui_click: 'assets/audio/ui_click.wav',
+                ui_error: 'assets/audio/ui_error.wav',
+                ui_buy: 'assets/audio/ui_buy.wav',
+                ui_chest_rumble: 'assets/audio/ui_chest_rumble.wav',
+                ui_chest_burst: 'assets/audio/ui_chest_burst.wav',
+                ui_beep: 'assets/audio/ui_beep.wav',
+
+                card_draw: 'assets/audio/card_draw.wav',
+                card_play: 'assets/audio/card_play.wav',
+                combat_hit: 'assets/audio/combat_hit.wav',
+                hero_heal: 'assets/audio/hero_heal.wav',
+                hero_damage: 'assets/audio/hero_damage.wav',
+
+                sfx_tribe_animal: 'assets/audio/tribe_animal.wav',
+                sfx_tribe_magic: 'assets/audio/tribe_magic.wav',
+                sfx_tribe_weather: 'assets/audio/tribe_weather.wav',
+                sfx_tribe_metal: 'assets/audio/tribe_metal.wav',
+                sfx_tribe_food: 'assets/audio/tribe_food.wav'
+            }
+        };
+
+        // State
+        this.currentBGM = null;
+        this.bgmAudioObj = new Audio();
+        this.bgmAudioObj.loop = true;
+
+        // Next BGM for crossfading
+        this.nextBgmAudioObj = new Audio();
+        this.nextBgmAudioObj.loop = true;
+
+        // SFX Object Pooling (5 instances per SFX to allow overlapping)
+        this.sfxPool = {};
+        this.poolSize = 5;
+
+        // Pre-initialize pools (we won't actually load the file until played, to save bandwidth if missing, but we setup the structure)
+        for (const [key, url] of Object.entries(this.assets.sfx)) {
+            this.sfxPool[key] = [];
+            for (let i = 0; i < this.poolSize; i++) {
+                const audio = new Audio(url);
+                this.sfxPool[key].push(audio);
+            }
+        }
+
+        AudioController.instance = this;
+    }
+
+    saveSettings() {
+        localStorage.setItem('cardWarsAudioPrefs', JSON.stringify({
+            masterVolume: this.masterVolume,
+            musicVolume: this.musicVolume,
+            sfxVolume: this.sfxVolume
+        }));
+
+        // Instantly update active BGM
+        this.updateBGMVolume();
+    }
+
+    updateBGMVolume(targetAudio = this.bgmAudioObj, ratio = 1.0) {
+        targetAudio.volume = this.masterVolume * this.musicVolume * ratio;
+    }
+
+    playBGM(trackId, crossfadeDuration = 1000) {
+        if (this.currentBGM === trackId) return; // Already playing
+
+        const url = this.assets.bgm[trackId];
+        if (!url) return;
+
+        this.currentBGM = trackId;
+
+        if (this.bgmAudioObj.paused || !this.bgmAudioObj.src) {
+            // Direct play if nothing was playing
+            this.bgmAudioObj.src = url;
+            this.updateBGMVolume();
+            this.bgmAudioObj.play().catch(e => console.log('BGM Play blocked by browser auto-play policy'));
+            return;
+        }
+
+        // Crossfade Logic
+        this.nextBgmAudioObj.src = url;
+        this.nextBgmAudioObj.volume = 0;
+        this.nextBgmAudioObj.play().catch(e => console.log('BGM Play blocked by browser auto-play policy'));
+
+        const steps = 20;
+        const stepTime = crossfadeDuration / steps;
+        let currentStep = 0;
+
+        const fadeInterval = setInterval(() => {
+            currentStep++;
+            const fadeOutRatio = 1 - (currentStep / steps);
+            const fadeInRatio = currentStep / steps;
+
+            this.updateBGMVolume(this.bgmAudioObj, fadeOutRatio);
+            this.updateBGMVolume(this.nextBgmAudioObj, fadeInRatio);
+
+            if (currentStep >= steps) {
+                clearInterval(fadeInterval);
+                this.bgmAudioObj.pause();
+
+                // Swap objects
+                const temp = this.bgmAudioObj;
+                this.bgmAudioObj = this.nextBgmAudioObj;
+                this.nextBgmAudioObj = temp;
+
+                this.updateBGMVolume(); // Ensure target max volume
+            }
+        }, stepTime);
+    }
+
+    playSFX(sfxId) {
+        const pool = this.sfxPool[sfxId];
+        if (!pool) {
+            console.warn(`SFX ${sfxId} not found in pool.`);
+            return;
+        }
+
+        // Find an available (paused or ended) audio object in the pool
+        let audioToPlay = pool.find(a => a.paused || a.ended || a.currentTime === 0);
+
+        // If all are playing, forcefully restart the oldest one (index 0) and rotate it to the end
+        if (!audioToPlay) {
+            audioToPlay = pool.shift();
+            pool.push(audioToPlay);
+        }
+
+        audioToPlay.volume = this.masterVolume * this.sfxVolume;
+        audioToPlay.currentTime = 0; // Rewind
+        audioToPlay.play().catch(e => console.log('SFX Play blocked'));
+    }
+}
+
+const AudioManager = new AudioController();
+
+
 let playerProfile = {
     coins: 500,
     gems: 50,
@@ -203,7 +361,7 @@ function loadProfile() {
         // Merge to avoid missing new fields in updates
         const parsed = JSON.parse(saved);
         playerProfile = { ...playerProfile, ...parsed };
-        
+
         // Ensure arrays and objects are merged properly
         if(!playerProfile.unlockedAvatars) playerProfile.unlockedAvatars = ['🧙‍♂️'];
         if(!playerProfile.activeAvatar) playerProfile.activeAvatar = '🧙‍♂️';
@@ -211,7 +369,7 @@ function loadProfile() {
         if(!playerProfile.quests) playerProfile.quests = JSON.parse(JSON.stringify(DAILY_QUESTS));
         if(!playerProfile.achievements) playerProfile.achievements = JSON.parse(JSON.stringify(ACHIEVEMENTS));
         if(playerProfile.pityTimer === undefined) playerProfile.pityTimer = 0;
-        
+
         // M6 Deck Enforcement
         enforceDeckLimits();
     }
@@ -222,21 +380,21 @@ function loadProfile() {
 function enforceDeckLimits() {
     const counts = {};
     const validDeck = [];
-    
+
     playerProfile.deck.forEach(cardId => {
         const c = getCardById(cardId);
         if(!c) return;
-        
+
         counts[cardId] = (counts[cardId] || 0) + 1;
         const maxLimit = (c.rarity === RARITIES.MYTHIC) ? 2 : 4;
-        
+
         if(counts[cardId] <= maxLimit && playerProfile.collection[cardId] >= counts[cardId]) {
             validDeck.push(cardId);
         }
     });
-    
+
     playerProfile.deck = validDeck;
-    
+
     // Auto-fill to 40 if needed (with dummy or basic cards if not enough collection, but realistically fallback)
     while (playerProfile.deck.length < 40) {
         playerProfile.deck.push('c_01'); // Force fallback
@@ -256,22 +414,22 @@ function updateUIProfile() {
     document.getElementById('menu-level').innerText = playerProfile.level;
     document.getElementById('menu-rank').innerText = getRankString(playerProfile.elo);
     document.getElementById('menu-avatar').innerText = playerProfile.activeAvatar;
-    
+
     const xpReq = playerProfile.level * 100;
     document.getElementById('menu-xp-fill').style.width = `${(playerProfile.xp / xpReq) * 100}%`;
-    
+
     // Shop
     document.getElementById('shop-coins').innerText = playerProfile.coins;
     document.getElementById('shop-gems').innerText = playerProfile.gems;
     document.getElementById('shop-stardust').innerText = playerProfile.stardust;
     document.getElementById('shop-tickets').innerText = playerProfile.tickets;
-    
+
     // Pity Timer display
     const pityEl = document.getElementById('pity-timer-display');
     if(pityEl) {
         pityEl.innerText = `Sorte Acumulada: ${playerProfile.pityTimer}/10 (Ao chegar em 10, próximo pacote garante Épica+)`;
     }
-    
+
     // Play Modes
     document.getElementById('adventure-progress-text').innerText = `Progresso: ${playerProfile.adventureProgress}/5`;
 }
@@ -298,7 +456,8 @@ function addXP(amount) {
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(screenId).classList.add('active');
-    
+
+    AudioManager.playBGM('bgm_menu');
     if (screenId === screens.COLLECTION) {
         renderCollection();
         renderDeck();
@@ -314,7 +473,7 @@ function showNotification(message, type = "info") {
     notif.className = `notification ${type}`;
     notif.innerText = message;
     container.appendChild(notif);
-    
+
     setTimeout(() => {
         notif.style.animation = 'slideUpFade 0.5s reverse forwards';
         setTimeout(() => notif.remove(), 500);
@@ -324,19 +483,19 @@ function showNotification(message, type = "info") {
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
     loadProfile();
-    
+
     // Main Menu Buttons
     document.getElementById('btn-play-modes').addEventListener('click', () => {
         document.getElementById('play-modes-modal').classList.remove('hidden');
     });
-    
+
     document.getElementById('btn-close-play-modes').addEventListener('click', () => {
         document.getElementById('play-modes-modal').classList.add('hidden');
     });
-    
+
     document.getElementById('btn-collection').addEventListener('click', () => showScreen(screens.COLLECTION));
     document.getElementById('btn-shop').addEventListener('click', () => showScreen(screens.SHOP));
-    
+
     document.getElementById('btn-quests').addEventListener('click', () => {
         renderQuests();
         document.getElementById('quests-overlay').classList.remove('hidden');
@@ -344,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-quests').addEventListener('click', () => {
         document.getElementById('quests-overlay').classList.add('hidden');
     });
-    
+
     document.getElementById('btn-achievements').addEventListener('click', () => {
         renderAchievements();
         document.getElementById('achievements-overlay').classList.remove('hidden');
@@ -352,7 +511,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-achievements').addEventListener('click', () => {
         document.getElementById('achievements-overlay').classList.add('hidden');
     });
-    
+
     document.getElementById('btn-settings').addEventListener('click', () => {
         document.getElementById('settings-overlay').classList.remove('hidden');
     });
@@ -360,12 +519,74 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('settings-overlay').classList.add('hidden');
     });
     document.getElementById('btn-reset-data').addEventListener('click', resetSaveData);
-    
+
+    // Audio Settings Integration
+    const sliderMaster = document.getElementById('slider-master-vol');
+    const sliderMusic = document.getElementById('slider-music-vol');
+    const sliderSfx = document.getElementById('slider-sfx-vol');
+
+    if (sliderMaster && sliderMusic && sliderSfx) {
+        // Load initial values to UI
+        sliderMaster.value = AudioManager.masterVolume;
+        sliderMusic.value = AudioManager.musicVolume;
+        sliderSfx.value = AudioManager.sfxVolume;
+
+        document.getElementById('val-master-vol').innerText = `${Math.round(AudioManager.masterVolume * 100)}%`;
+        document.getElementById('val-music-vol').innerText = `${Math.round(AudioManager.musicVolume * 100)}%`;
+        document.getElementById('val-sfx-vol').innerText = `${Math.round(AudioManager.sfxVolume * 100)}%`;
+
+        sliderMaster.addEventListener('input', (e) => {
+            AudioManager.masterVolume = parseFloat(e.target.value);
+            document.getElementById('val-master-vol').innerText = `${Math.round(AudioManager.masterVolume * 100)}%`;
+            AudioManager.saveSettings();
+            AudioManager.playSFX('ui_beep');
+        });
+
+        sliderMusic.addEventListener('input', (e) => {
+            AudioManager.musicVolume = parseFloat(e.target.value);
+            document.getElementById('val-music-vol').innerText = `${Math.round(AudioManager.musicVolume * 100)}%`;
+            AudioManager.saveSettings();
+            AudioManager.playSFX('ui_beep');
+        });
+
+        sliderSfx.addEventListener('input', (e) => {
+            AudioManager.sfxVolume = parseFloat(e.target.value);
+            document.getElementById('val-sfx-vol').innerText = `${Math.round(AudioManager.sfxVolume * 100)}%`;
+            AudioManager.saveSettings();
+            AudioManager.playSFX('ui_beep');
+        });
+    }
+
+    // Global UI Click and Hover Tracking
+    document.addEventListener('mouseover', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.classList.contains('card') || e.target.classList.contains('tab-btn')) {
+            AudioManager.playSFX('ui_hover');
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            // Se for botão de compra, não tocar ui_click genérico aqui (vamos tocar no logic)
+            if(!e.target.classList.contains('buy-btn')) {
+                AudioManager.playSFX('ui_click');
+            }
+        }
+    });
+
+    // Play Menu Music on load
+    // Note: Most browsers block audio until first user interaction.
+    document.addEventListener('click', () => {
+        if (document.getElementById('main-menu').classList.contains('active')) {
+            AudioManager.playBGM('bgm_menu');
+        }
+    }, { once: true });
+
+
     // Back Buttons
     document.querySelectorAll('.btn-back').forEach(btn => {
         btn.addEventListener('click', () => showScreen(screens.MENU));
     });
-    
+
     // Shop Logic
     document.querySelectorAll('.shop-tabs .tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -375,21 +596,23 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(e.target.dataset.target).classList.add('active');
         });
     });
-    
+
     document.querySelectorAll('.buy-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const type = e.target.dataset.type;
             const cost = parseInt(e.target.dataset.cost);
             const currency = e.target.dataset.currency;
-            
+
             if (type && cost && currency) {
                 if (playerProfile[currency] >= cost) {
                     playerProfile[currency] -= cost;
                     saveProfile();
                     if (type === 'tickets') {
                         playerProfile.tickets += 3;
+                        AudioManager.playSFX('ui_buy');
                         showNotification("Comprou 3 Fichas de Arena!", "success");
                     } else {
+                        AudioManager.playSFX('ui_buy');
                         openPack(type);
                     }
                 } else {
@@ -398,33 +621,33 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
-    
+
     document.getElementById('btn-close-pack').addEventListener('click', () => {
         document.getElementById('pack-opening-overlay').classList.add('hidden');
         saveProfile();
     });
-    
+
     // Collection Logic
     document.getElementById('btn-toggle-forge').addEventListener('click', () => {
         isForgeMode = !isForgeMode;
         document.getElementById('btn-toggle-forge').innerText = isForgeMode ? "Exit Forge Mode" : "Enter Forge Mode";
-        document.getElementById('collection-instructions').innerText = isForgeMode ? 
-            "Clique em uma carta não possuída para forjar com Pó Estelar, ou numa possuída para desencantar." : 
+        document.getElementById('collection-instructions').innerText = isForgeMode ?
+            "Clique em uma carta não possuída para forjar com Pó Estelar, ou numa possuída para desencantar." :
             "Clique numa carta para adicionar/remover do deck.";
         renderCollection();
     });
-    
+
     // Forge Buttons
     document.getElementById('btn-cancel-forge').addEventListener('click', () => {
         document.getElementById('forge-modal').classList.add('hidden');
     });
-    
+
     // Play Modes Actions
     document.getElementById('btn-play-adventure').addEventListener('click', () => {
         currentMatchMode = 'adventure';
         startBattle(true);
     });
-    
+
     document.getElementById('btn-play-ranked').addEventListener('click', () => {
         if (playerProfile.tickets > 0) {
             playerProfile.tickets--;
@@ -432,20 +655,21 @@ document.addEventListener('DOMContentLoaded', () => {
             currentMatchMode = 'ranked';
             startBattle(true);
         } else {
+            AudioManager.playSFX('ui_error');
             showNotification("Sem Fichas de Arena! Compre na Loja.", "error");
         }
     });
-    
+
     document.getElementById('btn-play-casual').addEventListener('click', () => {
         currentMatchMode = 'casual';
         startBattle(true);
     });
-    
+
     // Battle actions
     document.getElementById('btn-end-turn').addEventListener('click', endTurn);
-    
+
     document.getElementById('btn-hero-power').addEventListener('click', useHeroPower);
-    
+
     // Tooltip logic
     document.addEventListener('mousemove', (e) => {
         const tooltip = document.getElementById('global-tooltip');
@@ -469,7 +693,7 @@ function createCardHTML(card, showBack = false) {
     if (showBack) {
         return `<div class="card pack-card-hidden"></div>`;
     }
-    
+
     let tribesHTML = '';
     if (card.tribes && card.tribes.length > 0) {
         tribesHTML = `<div class="card-tribes">${card.tribes.join(', ')}</div>`;
@@ -492,18 +716,18 @@ function createCardHTML(card, showBack = false) {
 
     let statsHTML = '';
     let costHTML = `<div class="card-cost">${card.cost}</div>`;
-    
+
     if (card.type === CARD_TYPES.TROOP) {
         const displayAtk = card.atk !== undefined ? card.atk : card.baseAtk;
         const displayHp = card.hp !== undefined ? card.hp : card.baseHp;
-        
+
         let atkStyle = '';
         let hpStyle = '';
         if (card.baseStatsSet) {
             if (card.atk > card.baseAtk) atkStyle = 'color: #f1c40f; text-shadow: 0 0 5px #f1c40f;';
             if (card.hp > card.baseHp) hpStyle = 'color: #2ecc71; text-shadow: 0 0 5px #2ecc71;';
         }
-        
+
         statsHTML = `
             <div class="card-stats">
                 <span class="card-atk" style="${atkStyle}">⚔️ ${displayAtk}</span>
@@ -527,7 +751,7 @@ function createCardHTML(card, showBack = false) {
 
     let extraClasses = '';
     if (card.hasAuraBuff) extraClasses += ' has-aura';
-    
+
     return `
         <div class="card ${extraClasses}" data-id="${card.id}" data-rarity="${card.rarity}" data-type="${card.type}">
             ${costHTML}
@@ -544,15 +768,16 @@ function createCardHTML(card, showBack = false) {
 function openPack(type) {
     playerProfile.stats.packsOpened++;
     playerProfile.pityTimer++;
-    
+
     const container = document.getElementById('opened-cards');
     container.innerHTML = '';
     document.getElementById('pack-opening-overlay').classList.remove('hidden');
-    
+    AudioManager.playSFX('ui_chest_rumble');
+
     let cardsToDraw = 5;
     let guaranteedRarity = null;
     let poolFilter = null;
-    
+
     if (type === 'epic') guaranteedRarity = RARITIES.EPIC;
     if (type === 'legendary') { guaranteedRarity = RARITIES.LEGENDARY; cardsToDraw = 1; }
     if (type === 'mythic') { guaranteedRarity = RARITIES.MYTHIC; cardsToDraw = 1; }
@@ -569,10 +794,10 @@ function openPack(type) {
         let pool = CardDatabase;
         if (poolFilter) pool = pool.filter(poolFilter);
         if (pool.length === 0) pool = CardDatabase; // fallback
-        
+
         let rarityRoll = Math.random();
         let targetRarity = RARITIES.COMMON;
-        
+
         if (i === 0 && guaranteedRarity) {
             targetRarity = guaranteedRarity;
         } else {
@@ -582,7 +807,7 @@ function openPack(type) {
             else if (rarityRoll > 0.60) targetRarity = RARITIES.RARE;
             else if (rarityRoll > 0.30) targetRarity = RARITIES.UNCOMMON;
         }
-        
+
         // Reset pity timer if we natural rolled a big one
         if (targetRarity === RARITIES.LEGENDARY || targetRarity === RARITIES.MYTHIC) {
             playerProfile.pityTimer = 0;
@@ -591,27 +816,29 @@ function openPack(type) {
         let rarityPool = pool.filter(c => c.rarity === targetRarity);
         if (rarityPool.length === 0) rarityPool = CardDatabase.filter(c => c.rarity === targetRarity); // global fallback
         if (rarityPool.length === 0) rarityPool = CardDatabase; // absolute fallback
-        
+
         const pulledCard = rarityPool[Math.floor(Math.random() * rarityPool.length)];
-        
+
         // Add to collection
         if (!playerProfile.collection[pulledCard.id]) {
             playerProfile.collection[pulledCard.id] = 0;
         }
         playerProfile.collection[pulledCard.id]++;
-        
+        AudioManager.playSFX('card_draw');
+
         // Render hidden card
         const wrapper = document.createElement('div');
         wrapper.innerHTML = createCardHTML(pulledCard, true);
         const cardEl = wrapper.firstElementChild;
-        
+
         // Add reveal interaction
         cardEl.addEventListener('click', function() {
             if (this.classList.contains('pack-card-hidden')) {
                 this.className = `card card-reveal-anim`;
                 this.setAttribute('data-rarity', pulledCard.rarity);
                 this.innerHTML = createCardHTML(pulledCard, false).match(/<div class="card[^>]*>([\s\S]*?)<\/div>/)[1];
-                
+                AudioManager.playSFX('ui_chest_burst');
+
                 // Add particles based on rarity
                 if (pulledCard.rarity === RARITIES.LEGENDARY || pulledCard.rarity === RARITIES.MYTHIC) {
                     createParticles(this, pulledCard.rarity === RARITIES.MYTHIC ? '#e74c3c' : '#f1c40f');
@@ -620,7 +847,7 @@ function openPack(type) {
                 }
             }
         });
-        
+
         container.appendChild(cardEl);
     }
     updateUIProfile();
@@ -630,7 +857,7 @@ function createParticles(element, color) {
     const rect = element.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
-    
+
     for (let i = 0; i < 20; i++) {
         const particle = document.createElement('div');
         particle.style.position = 'absolute';
@@ -642,14 +869,14 @@ function createParticles(element, color) {
         particle.style.top = centerY + 'px';
         particle.style.pointerEvents = 'none';
         particle.style.zIndex = '9999';
-        
+
         const angle = Math.random() * Math.PI * 2;
         const speed = 5 + Math.random() * 10;
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
-        
+
         document.body.appendChild(particle);
-        
+
         let op = 1;
         const anim = setInterval(() => {
             const currentLeft = parseFloat(particle.style.left);
@@ -658,7 +885,7 @@ function createParticles(element, color) {
             particle.style.top = currentTop + vy + 'px';
             op -= 0.05;
             particle.style.opacity = op;
-            
+
             if (op <= 0) {
                 clearInterval(anim);
                 particle.remove();
@@ -671,7 +898,7 @@ function createParticles(element, color) {
 function renderDailyDeals() {
     const container = document.getElementById('daily-deals-container');
     container.innerHTML = '';
-    
+
     // Generate 3 random cards for direct purchase
     for (let i = 0; i < 3; i++) {
         let rarityToGen = RARITIES.COMMON;
@@ -679,32 +906,33 @@ function renderDailyDeals() {
         if (roll > 0.9) rarityToGen = RARITIES.EPIC;
         else if (roll > 0.6) rarityToGen = RARITIES.RARE;
         else if (roll > 0.3) rarityToGen = RARITIES.UNCOMMON;
-        
+
         const pool = CardDatabase.filter(c => c.rarity === rarityToGen);
         const card = pool[Math.floor(Math.random() * pool.length)];
-        
+
         let cost = 100;
         if (rarityToGen === RARITIES.UNCOMMON) cost = 250;
         if (rarityToGen === RARITIES.RARE) cost = 500;
         if (rarityToGen === RARITIES.EPIC) cost = 1000;
-        
+
         const div = document.createElement('div');
         div.className = 'shop-item';
         div.innerHTML = `
             ${createCardHTML(card)}
             <button class="buy-btn" style="margin-top:10px; width:100%" data-id="${card.id}" data-cost="${cost}">Comprar ${cost}💰</button>
         `;
-        
+
         div.querySelector('button').addEventListener('click', (e) => {
             const btn = e.target;
             const cId = btn.dataset.id;
             const cCost = parseInt(btn.dataset.cost);
-            
+
             if (playerProfile.coins >= cCost) {
                 playerProfile.coins -= cCost;
                 if (!playerProfile.collection[cId]) playerProfile.collection[cId] = 0;
                 playerProfile.collection[cId]++;
                 saveProfile();
+                AudioManager.playSFX('ui_buy');
                 showNotification(`Comprou ${getCardById(cId).name}!`, "success");
                 btn.disabled = true;
                 btn.innerText = "Comprado";
@@ -712,7 +940,7 @@ function renderDailyDeals() {
                 showNotification("Moedas insuficientes!", "error");
             }
         });
-        
+
         container.appendChild(div);
     }
 }
@@ -720,18 +948,18 @@ function renderDailyDeals() {
 function renderAvatars() {
     const container = document.getElementById('avatars-container');
     container.innerHTML = '';
-    
+
     const availableAvatars = [
-        { icon: '🧙‍♂️', cost: 0 }, { icon: '🧝‍♀️', cost: 100 }, { icon: '🧛‍♂️', cost: 200 }, 
+        { icon: '🧙‍♂️', cost: 0 }, { icon: '🧝‍♀️', cost: 100 }, { icon: '🧛‍♂️', cost: 200 },
         { icon: '🧟', cost: 200 }, { icon: '🤖', cost: 300 }, { icon: '👽', cost: 500 }
     ];
-    
+
     availableAvatars.forEach(av => {
         const div = document.createElement('div');
         div.className = 'shop-item';
         const isOwned = playerProfile.unlockedAvatars.includes(av.icon);
         const isEquipped = playerProfile.activeAvatar === av.icon;
-        
+
         let btnHTML = '';
         if (isEquipped) {
             btnHTML = `<button disabled>Equipado</button>`;
@@ -740,15 +968,15 @@ function renderAvatars() {
         } else {
             btnHTML = `<button class="buy-avatar-btn" data-icon="${av.icon}" data-cost="${av.cost}">Comprar ${av.cost}💎</button>`;
         }
-        
+
         div.innerHTML = `
             <div style="font-size: 4rem;">${av.icon}</div>
             ${btnHTML}
         `;
-        
+
         container.appendChild(div);
     });
-    
+
     document.querySelectorAll('.buy-avatar-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const icon = e.target.dataset.icon;
@@ -759,13 +987,14 @@ function renderAvatars() {
                 playerProfile.activeAvatar = icon;
                 saveProfile();
                 renderAvatars();
+                AudioManager.playSFX('ui_buy');
                 showNotification("Avatar comprado e equipado!", "success");
             } else {
                 showNotification("Gemas insuficientes!", "error");
             }
         });
     });
-    
+
     document.querySelectorAll('.equip-avatar-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             playerProfile.activeAvatar = e.target.dataset.icon;
@@ -782,14 +1011,14 @@ let selectedCardForForge = null;
 function renderCollection() {
     const grid = document.getElementById('collection-grid');
     grid.innerHTML = '';
-    
+
     // Sort by cost, then rarity
     const sortedDB = [...CardDatabase].sort((a, b) => {
         if (a.cost !== b.cost) return a.cost - b.cost;
         const rVal = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5, mythic: 6 };
         return rVal[b.rarity] - rVal[a.rarity];
     });
-    
+
     // M6: Add Hero Selector at the top of Collection
     let heroSelectorHTML = `
         <div style="width:100%; text-align:center; margin-bottom: 15px;">
@@ -804,27 +1033,27 @@ function renderCollection() {
     // Prepend safely
     const oldSelector = document.getElementById('hero-select-container');
     if(oldSelector) oldSelector.remove();
-    
+
     const selectorContainer = document.createElement('div');
     selectorContainer.id = 'hero-select-container';
     selectorContainer.innerHTML = heroSelectorHTML;
     grid.parentNode.insertBefore(selectorContainer, grid);
-    
+
     document.getElementById('hero-select').addEventListener('change', (e) => {
         playerProfile.hero = e.target.value;
         saveProfile();
         showNotification("Herói atualizado!", "success");
     });
-    
+
     sortedDB.forEach(card => {
         const count = playerProfile.collection[card.id] || 0;
-        
+
         if (!isForgeMode && count === 0) return; // Hide unowned if not forging
-        
+
         const wrapper = document.createElement('div');
         wrapper.style.position = 'relative';
         wrapper.innerHTML = createCardHTML(card);
-        
+
         // Count badge
         const badge = document.createElement('div');
         badge.style.position = 'absolute';
@@ -838,11 +1067,11 @@ function renderCollection() {
         badge.style.zIndex = '10';
         badge.innerText = `x${count}`;
         wrapper.appendChild(badge);
-        
+
         if (count === 0) {
             wrapper.firstElementChild.style.filter = 'grayscale(100%) opacity(0.5)';
         }
-        
+
         wrapper.firstElementChild.addEventListener('click', () => {
             if (isForgeMode) {
                 openForgeModal(card, count);
@@ -852,7 +1081,7 @@ function renderCollection() {
                 }
             }
         });
-        
+
         grid.appendChild(wrapper);
     });
 }
@@ -864,10 +1093,10 @@ function openForgeModal(card, count) {
     const title = document.getElementById('forge-title');
     const desc = document.getElementById('forge-desc');
     const btnConfirm = document.getElementById('btn-confirm-forge');
-    
+
     preview.innerHTML = createCardHTML(card);
     modal.classList.remove('hidden');
-    
+
     // Costs based on rarity
     const costs = {
         common: { craft: 40, dust: 5 },
@@ -877,9 +1106,9 @@ function openForgeModal(card, count) {
         legendary: { craft: 3200, dust: 800 },
         mythic: { craft: 5000, dust: 1500 }
     };
-    
+
     const cost = costs[card.rarity];
-    
+
     if (count > 0) {
         title.innerText = "Desencantar Carta";
         title.style.color = "#e74c3c";
@@ -923,25 +1152,25 @@ function openForgeModal(card, count) {
 function addCardToDeck(cardId) {
     const c = getCardById(cardId);
     if(!c) return;
-    
+
     const maxLimit = (c.rarity === RARITIES.MYTHIC) ? 2 : 4;
     const currentCount = playerProfile.deck.filter(id => id === cardId).length;
-    
+
     if (playerProfile.deck.length >= 40) {
         showNotification("O deck já possui 40 cartas!", "error");
         return;
     }
-    
+
     if (currentCount >= maxLimit) {
         showNotification(`Limite alcançado (${maxLimit}x)!`, "error");
         return;
     }
-    
+
     if (currentCount >= playerProfile.collection[cardId]) {
         showNotification("Você não tem mais cópias dessa carta na coleção!", "error");
         return;
     }
-    
+
     playerProfile.deck.push(cardId);
     saveProfile();
     renderDeck();
@@ -956,9 +1185,9 @@ function removeCardFromDeck(index) {
 function renderDeck() {
     const grid = document.getElementById('deck-grid');
     grid.innerHTML = '';
-    
+
     document.getElementById('deck-count').innerText = `${playerProfile.deck.length}/40 Cartas`;
-    
+
     // Sort deck for display
     const sortedDeck = [...playerProfile.deck].sort((a, b) => {
         const cardA = getCardById(a);
@@ -967,7 +1196,7 @@ function renderDeck() {
         if (cardA.cost !== cardB.cost) return cardA.cost - cardB.cost;
         return cardA.name.localeCompare(cardB.name);
     });
-    
+
     sortedDeck.forEach((cardId, i) => {
         const card = getCardById(cardId);
         if(!card) return;
@@ -975,9 +1204,9 @@ function renderDeck() {
         wrapper.innerHTML = createCardHTML(card);
         const cardEl = wrapper.firstElementChild;
         cardEl.classList.add('in-deck');
-        
+
         cardEl.addEventListener('click', () => removeCardFromDeck(i));
-        
+
         grid.appendChild(cardEl);
     });
 }
@@ -986,7 +1215,7 @@ function renderDeck() {
 function renderQuests() {
     const container = document.getElementById('quests-container');
     container.innerHTML = '';
-    
+
     playerProfile.quests.forEach(q => {
         const div = document.createElement('div');
         div.className = `quest-item ${q.completed ? 'completed' : ''}`;
@@ -1006,13 +1235,13 @@ function renderQuests() {
 function updateQuests(type, amount = 1) {
     playerProfile.quests.forEach(q => {
         if (q.completed) return;
-        
+
         if (type === 'win' && q.id === 'q2') q.progress += amount;
         if (type === 'play' && q.id === 'q1') q.progress += amount;
         if (type === 'damage' && q.id === 'q3') q.progress += amount;
         if (type === 'card' && q.id === 'q4') q.progress += amount;
         if (type === 'spell' && q.id === 'q5') q.progress += amount;
-        
+
         if (q.progress >= q.target) {
             q.progress = q.target;
             q.completed = true;
@@ -1026,13 +1255,13 @@ function updateQuests(type, amount = 1) {
 function renderAchievements() {
     const container = document.getElementById('achievements-container');
     container.innerHTML = '';
-    
+
     playerProfile.achievements.forEach(a => {
         const div = document.createElement('div');
         div.className = `quest-item ${a.completed ? 'completed' : ''}`;
-        
+
         const rewardText = a.reward.type === 'avatar' ? `Avatar ${a.reward.value}` : `${a.reward.amount} ${a.reward.type}`;
-        
+
         div.innerHTML = `
             <div>
                 <h4>${a.desc}</h4>
@@ -1049,20 +1278,20 @@ function renderAchievements() {
 function checkAchievements() {
     playerProfile.achievements.forEach(a => {
         if (a.completed) return;
-        
+
         if (a.id === 'a1' && playerProfile.stats.wins >= 1) a.progress = 1;
         if (a.id === 'a2') a.progress = playerProfile.stats.wins;
-        
+
         let uniqueCards = 0;
         for (let key in playerProfile.collection) {
             if (playerProfile.collection[key] > 0) uniqueCards++;
         }
         if (a.id === 'a3') a.progress = uniqueCards;
-        
+
         if (a.id === 'a4' && playerProfile.coins >= 5000) a.progress = 5000;
-        
+
         // a5 is updated dynamically in draft win
-        
+
         if (a.progress >= a.target) {
             a.progress = a.target;
             a.completed = true;
@@ -1080,15 +1309,15 @@ function checkAchievements() {
 // --- BATTLE ACTIONS & HERO POWERS ---
 function useHeroPower() {
     if (!gameState.isPlayerTurn || gameState.player.heroUsed) return;
-    
+
     const p_hero = HEROES[playerProfile.hero] || HEROES.MAGO;
     const cost = p_hero.powerCost;
-    
+
     if (gameState.player.credits + gameState.player.battery < cost) {
         showNotification("Energia Insuficiente!", "error");
         return;
     }
-    
+
     // Deduct cost
     let remainingCost = cost;
     if (gameState.player.credits >= remainingCost) {
@@ -1098,9 +1327,9 @@ function useHeroPower() {
         gameState.player.credits = 0;
         gameState.player.battery -= remainingCost;
     }
-    
+
     gameState.player.heroUsed = true;
-    
+
     if (p_hero.id === 'mago') {
         // Target logic: let user pick any enemy (simplified to direct hero dmg if no target selector implemented, but let's just hit the enemy hero for flow)
         triggerDamageAnimation('player', null, 'opponent', null, 2);
@@ -1125,22 +1354,22 @@ function useHeroPower() {
             updateBattleUI();
         }, 500);
     }
-    
+
     updateBattleUI();
 }
 
 function startTurn(side) {
     gameState.turn++;
-    
+
     // M6 Battery logic: Normal credits reset and increment. Remaining credits DO NOT carry over.
     // Battery only fills from specific card effects.
     const maxCred = Math.min(10, Math.ceil(gameState.turn / 2));
     gameState[side].maxCredits = maxCred;
     gameState[side].credits = maxCred;
     gameState[side].heroUsed = false;
-    
+
     drawCard(side, 1);
-    
+
     // Reset attack state and trigger start-of-turn auras/environments
     gameState[side].board.forEach((card, index) => {
         if (card) {
@@ -1151,7 +1380,7 @@ function startTurn(side) {
             } else {
                 card.exhausted = false;
             }
-            
+
             // Env effects
             const env = gameState.environments[index];
             if (env) {
@@ -1167,7 +1396,7 @@ function startTurn(side) {
                     }
                 }
             }
-            
+
             // Aura effects
             if (card.aura) {
                 if (card.aura.randomDamage) {
@@ -1192,10 +1421,10 @@ function startTurn(side) {
             }
         }
     });
-    
+
     checkDeadCards();
     updateBattleUI();
-    
+
     if (side === 'opponent') {
         setTimeout(botTurn, 1000);
     }
@@ -1213,13 +1442,13 @@ function renderBoard(side) {
         const slot = document.getElementById(`${side === 'opponent' ? 'opp' : 'player'}-slot-${i}`);
         slot.innerHTML = '';
         slot.className = `slot ${side}-slot`;
-        
+
         const card = gameState[side].board[i];
         if (card) {
             const wrapper = document.createElement('div');
             wrapper.innerHTML = createCardHTML(card);
             const cardEl = wrapper.firstElementChild;
-            
+
             if (side === 'player' && !card.exhausted && gameState.isPlayerTurn && card.atk > 0 && !(card.keywords && card.keywords.includes('defensor'))) {
                 cardEl.classList.add('can-attack');
                 cardEl.addEventListener('click', () => prepareAttack(i));
@@ -1227,7 +1456,7 @@ function renderBoard(side) {
             if (card.exhausted) {
                 cardEl.classList.add('exhausted');
             }
-            
+
             slot.appendChild(cardEl);
         } else {
             if (side === 'player' && gameState.isPlayerTurn && gameState.selectedCardIndex !== null) {
@@ -1238,7 +1467,7 @@ function renderBoard(side) {
                 }
             }
         }
-        
+
         // Render Environments
         if (side === 'player') {
             const env = gameState.environments[i];
@@ -1254,19 +1483,20 @@ function renderBoard(side) {
 
 function selectCardInHand(index) {
     if (!gameState.isPlayerTurn) return;
-    
+
     const card = gameState.player.hand[index];
     if (gameState.player.credits + gameState.player.battery < card.cost) {
+        AudioManager.playSFX('ui_error');
         showNotification("Not enough energy!", "error");
         return;
     }
-    
+
     if (gameState.selectedCardIndex === index) {
         gameState.selectedCardIndex = null;
     } else {
         gameState.selectedCardIndex = index;
     }
-    
+
     // Spells or Secrets might not need a lane target
     if (gameState.selectedCardIndex !== null && (card.type === CARD_TYPES.SPELL || card.type === CARD_TYPES.SECRET)) {
         if (card.target === 'none' || card.type === CARD_TYPES.SECRET) {
@@ -1277,16 +1507,16 @@ function selectCardInHand(index) {
             enableSpellTargeting(card);
         }
     }
-    
+
     updateBattleUI();
 }
 
 function playCard(laneIndex, side = 'player') {
     if (gameState.selectedCardIndex === null && side === 'player') return;
-    
+
     const handIndex = side === 'player' ? gameState.selectedCardIndex : gameState.opponent.selectedCardIndex;
     const card = gameState[side].hand[handIndex];
-    
+
     // Pay cost using Credits first, then Battery
     let remainingCost = card.cost;
     if (gameState[side].credits >= remainingCost) {
@@ -1296,7 +1526,7 @@ function playCard(laneIndex, side = 'player') {
         gameState[side].credits = 0;
         gameState[side].battery -= remainingCost;
     }
-    
+
     if (side === 'player') {
         matchStats.creditsSpent += card.cost;
         if (card.tribes && card.tribes.length > 0) {
@@ -1305,34 +1535,36 @@ function playCard(laneIndex, side = 'player') {
     }
 
     gameState[side].hand.splice(handIndex, 1);
-    
+
     if (card.type === CARD_TYPES.TROOP) {
         if (side === 'player') matchStats.troopsPlayed++;
         card.exhausted = true; // Summoning sickness
         gameState[side].board[laneIndex] = card;
-        
+        AudioManager.playSFX('card_play');
+
         // M6: Trigger Battlecry
         if (card.battlecry) triggerBattlecry(side, laneIndex, card.battlecry);
-        
+
     } else if (card.type === CARD_TYPES.ENVIRONMENT) {
         if (side === 'player') matchStats.envPlayed++;
         gameState.environments[laneIndex] = card;
-        
+        AudioManager.playSFX('card_play');
+
     } else if (card.type === CARD_TYPES.SECRET) {
         gameState[side].secrets.push(card);
         showNotification(`${side === 'player' ? 'Você' : 'Oponente'} jogou um Segredo!`, "info");
-        
+
     } else if (card.type === CARD_TYPES.SPELL) {
         if (side === 'player') matchStats.spellsPlayed++;
         resolveSpell(side, card, laneIndex); // Pass laneIndex as target for simplicity
     }
-    
+
     if (side === 'player') {
         gameState.selectedCardIndex = null;
         updateQuests('card');
         if (card.type === CARD_TYPES.SPELL) updateQuests('spell');
     }
-    
+
     updateBattleUI();
 }
 
@@ -1360,7 +1592,7 @@ function resolveSpell(side, card, targetIndex) {
         const oppBoard = gameState[side === 'player' ? 'opponent' : 'player'].board;
         let validTargets = [];
         oppBoard.forEach((c, i) => { if (c) validTargets.push(i); });
-        
+
         if (card.target === 'all_troops') {
             gameState.player.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
             gameState.opponent.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
@@ -1378,7 +1610,7 @@ function resolveSpell(side, card, targetIndex) {
             gameState[oppSide].board[targetIndex].hp = 0;
         }
     }
-    
+
     checkDeadCards();
 }
 
@@ -1410,10 +1642,10 @@ function enableSpellTargeting(card) {
 
 function prepareAttack(laneIndex) {
     gameState.attackingCardIndex = laneIndex;
-    
+
     // Highlight valid targets
     document.querySelectorAll('.targetable').forEach(el => el.classList.remove('targetable'));
-    
+
     const oppBoard = gameState.opponent.board;
     // Direct lane combat rule: must attack blocker if exists
     if (oppBoard[laneIndex]) {
@@ -1444,11 +1676,11 @@ function triggerBattlecry(side, laneIndex, battlecry) {
 function executeAttack(attackerIdx, defenderIdx) {
     const attackerCard = gameState.player.board[attackerIdx];
     attackerCard.exhausted = true;
-    
+
     // Animate attack
     const attackerEl = document.querySelector(`#player-slot-${attackerIdx} .card`);
     attackerEl.classList.add('attack-animation');
-    
+
     // Secret trigger logic
     const secretIdx = gameState.opponent.secrets.findIndex(s => s.trigger === 'on_attacked');
     if (secretIdx > -1) {
@@ -1462,15 +1694,15 @@ function executeAttack(attackerIdx, defenderIdx) {
             return;
         }
     }
-    
+
     setTimeout(() => {
         if (defenderIdx !== null) {
             const defenderCard = gameState.opponent.board[defenderIdx];
-            
+
             // Check shield
             let pDmg = attackerCard.atk;
             let oDmg = defenderCard.atk;
-            
+
             if (defenderCard.keywords && defenderCard.keywords.includes('escudo')) {
                 defenderCard.keywords = defenderCard.keywords.filter(k => k !== 'escudo');
                 pDmg = 0;
@@ -1479,24 +1711,35 @@ function executeAttack(attackerIdx, defenderIdx) {
                 attackerCard.keywords = attackerCard.keywords.filter(k => k !== 'escudo');
                 oDmg = 0;
             }
-            
+
             defenderCard.hp -= pDmg;
             attackerCard.hp -= oDmg;
-            
+
             triggerDamageAnimation('player', attackerIdx, 'opponent', defenderIdx, pDmg);
             if (oDmg > 0) triggerDamageAnimation('opponent', defenderIdx, 'player', attackerIdx, oDmg);
-            
+
             // Poison logic
             if (attackerCard.keywords && attackerCard.keywords.includes('veneno') && pDmg > 0) defenderCard.hp = 0;
             if (defenderCard.keywords && defenderCard.keywords.includes('veneno') && oDmg > 0) attackerCard.hp = 0;
-            
+
+            // SFX Combat Hit & Tribe Synergy
+            AudioManager.playSFX('combat_hit');
+            if (attackerCard.tribes && attackerCard.tribes.length > 0) {
+                const mainTribe = attackerCard.tribes[0];
+                if (mainTribe === TRIBES.ANIMAL) AudioManager.playSFX('sfx_tribe_animal');
+                else if (mainTribe === TRIBES.MAGICO || mainTribe === TRIBES.MISTICO) AudioManager.playSFX('sfx_tribe_magic');
+                else if (mainTribe === TRIBES.AQUATICO || mainTribe === TRIBES.NATUREZA || mainTribe === TRIBES.TERRENO) AudioManager.playSFX('sfx_tribe_weather');
+                else if (mainTribe === TRIBES.FERRAMENTA || mainTribe === TRIBES.VEICULO || mainTribe === TRIBES.TECNOLOGIA) AudioManager.playSFX('sfx_tribe_metal');
+                else if (mainTribe === TRIBES.COMIDA) AudioManager.playSFX('sfx_tribe_food');
+            }
+
             if (attackerCard.lifesteal) {
                 gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + attackerCard.lifesteal);
                 triggerHealAnimation('player', null, attackerCard.lifesteal);
             }
-            
+
             document.querySelector(`#opp-slot-${defenderIdx} .card`).classList.add('collision-flash');
-            
+
         } else {
             // Secret check for hero attack
             const heroSecretIdx = gameState.opponent.secrets.findIndex(s => s.trigger === 'on_hero_attacked');
@@ -1504,7 +1747,7 @@ function executeAttack(attackerIdx, defenderIdx) {
                 const sct = gameState.opponent.secrets[heroSecretIdx];
                 gameState.opponent.secrets.splice(heroSecretIdx, 1);
                 showNotification(`SEGREDO REVELADO: ${sct.name}!`, "error");
-                
+
                 if (sct.effect.preventDamage) {
                     if (sct.effect.summon) {
                         gameState.opponent.board[attackerIdx] = JSON.parse(JSON.stringify(getCardById(sct.effect.summon)));
@@ -1513,60 +1756,65 @@ function executeAttack(attackerIdx, defenderIdx) {
                     return;
                 }
             }
-            
+
             gameState.opponent.hp -= attackerCard.atk;
             triggerDamageAnimation('player', attackerIdx, 'opponent', null, attackerCard.atk);
-            
+
             if (attackerCard.lifesteal) {
                 gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + attackerCard.lifesteal);
                 triggerHealAnimation('player', null, attackerCard.lifesteal);
             }
-            
+
             document.querySelector('.bot-avatar').classList.add('screen-shake');
             setTimeout(() => document.querySelector('.bot-avatar').classList.remove('screen-shake'), 400);
-            
+
             matchStats.damageDealt += attackerCard.atk;
             updateQuests('damage', attackerCard.atk);
         }
-        
+
         attackerEl.classList.remove('attack-animation');
         document.querySelectorAll('.targetable').forEach(el => {
             el.classList.remove('targetable');
             el.onclick = null;
         });
-        
+
         checkDeadCards();
         checkWinCondition();
         updateBattleUI();
-        
+
     }, 200);
 }
 
 function triggerDamageAnimation(attackerSide, attackerIdx, defenderSide, defenderIdx, damageAmount) {
     if (damageAmount <= 0) return;
-    
+
     const gameContainer = document.getElementById('battle-screen');
     const dmgEl = document.createElement('div');
     dmgEl.className = 'damage-number';
     dmgEl.innerText = `-${damageAmount}`;
-    
+
     // Dynamic X/Y arc calculation
     const dirX = (Math.random() - 0.5) * 100;
     dmgEl.style.setProperty('--dir-x', `${dirX}px`);
-    
+
     let targetEl;
     if (defenderIdx !== null) {
         targetEl = document.getElementById(`${defenderSide === 'opponent' ? 'opp' : 'player'}-slot-${defenderIdx}`);
     } else {
         targetEl = document.querySelector(defenderSide === 'opponent' ? '.bot-avatar' : '#battle-player-avatar');
     }
-    
+
+    // SFX for hero damage
+    if (defenderIdx === null) {
+        AudioManager.playSFX('hero_damage');
+    }
+
     if (targetEl) {
         const rect = targetEl.getBoundingClientRect();
         dmgEl.style.left = (rect.left + rect.width/2 - 20) + 'px';
         dmgEl.style.top = (rect.top + rect.height/2 - 20) + 'px';
         gameContainer.appendChild(dmgEl);
-        
+
         // M7: Explicit cleanup
         setTimeout(() => dmgEl.remove(), 1200);
     }
@@ -1575,17 +1823,23 @@ function triggerDamageAnimation(attackerSide, attackerIdx, defenderSide, defende
 function triggerHealAnimation(side, index, amount) {
     if (amount <= 0) return;
     const gameContainer = document.getElementById('battle-screen');
+    AudioManager.playSFX('hero_heal');
     const healEl = document.createElement('div');
     healEl.className = 'heal-number';
     healEl.innerText = `+${amount}`;
-    
+
     const dirX = (Math.random() - 0.5) * 50;
     healEl.style.setProperty('--dir-x', `${dirX}px`);
-    
-    let targetEl = index !== null ? 
-        document.getElementById(`${side === 'opponent' ? 'opp' : 'player'}-slot-${index}`) : 
+
+    let targetEl = index !== null ?
+        document.getElementById(`${side === 'opponent' ? 'opp' : 'player'}-slot-${index}`) :
         document.querySelector(side === 'opponent' ? '.bot-avatar' : '#battle-player-avatar');
-        
+
+    // SFX for hero damage
+    if (defenderIdx === null) {
+        AudioManager.playSFX('hero_damage');
+    }
+
     if (targetEl) {
         const rect = targetEl.getBoundingClientRect();
         healEl.style.left = (rect.left + rect.width/2 - 20) + 'px';
@@ -1622,6 +1876,13 @@ function checkDeadCards() {
 }
 
 function checkWinCondition() {
+    // Dynamic Tension Check
+    const pRatio = gameState.player.hp / gameState.player.maxHp;
+    const oRatio = gameState.opponent.hp / gameState.opponent.maxHp;
+    if (pRatio <= 0.3 || oRatio <= 0.3) {
+        AudioManager.playBGM('bgm_battle_tension');
+    }
+
     if (gameState.player.hp <= 0 && gameState.opponent.hp <= 0) {
         endGame(false); // Tie goes to opponent for simplicity
     } else if (gameState.opponent.hp <= 0) {
@@ -1635,16 +1896,16 @@ function checkWinCondition() {
 function triggerBotEmote(type) {
     const emoteEl = document.getElementById('bot-emote');
     if (!emoteEl) return;
-    
+
     let emote = '😈';
     if (type === 'greeting') emote = ['Bem vindo...', 'PREPARE-SE!', '🤖 beep boop', '😎'].sort(() => 0.5 - Math.random())[0];
     if (type === 'calculating') emote = '🤔...';
     if (type === 'lethal') emote = '☠️ ADEUS!';
     if (type === 'damage') emote = ['Ouch!', 'Isso doeu...', '😡'].sort(() => 0.5 - Math.random())[0];
-    
+
     emoteEl.innerText = emote;
     emoteEl.classList.remove('hidden');
-    
+
     setTimeout(() => {
         emoteEl.classList.add('hidden');
     }, 2500);
@@ -1668,25 +1929,25 @@ function evaluateLethal() {
 
 function botTurn() {
     triggerBotEmote('calculating');
-    
+
     setTimeout(() => {
         const level = gameState.opponent.botLevel || 'easy';
-        
+
         // 1. Play Cards Phase
         for (let i = gameState.opponent.hand.length - 1; i >= 0; i--) {
             const card = gameState.opponent.hand[i];
             const totalEnergy = gameState.opponent.credits + gameState.opponent.battery;
-            
+
             if (totalEnergy >= card.cost) {
                 if (card.type === CARD_TYPES.TROOP || card.type === CARD_TYPES.ENVIRONMENT) {
                     const emptyLanes = [];
                     for(let j=0; j<5; j++) if(!gameState.opponent.board[j]) emptyLanes.push(j);
-                    
+
                     if (emptyLanes.length > 0) {
                         gameState.opponent.selectedCardIndex = i;
                         // Smart placement for higher levels
                         let targetLane = emptyLanes[Math.floor(Math.random() * emptyLanes.length)];
-                        
+
                         if (level === 'hard' || level === 'expert') {
                             // Try to block player's highest attack card
                             let highestThreatLane = -1;
@@ -1700,7 +1961,7 @@ function botTurn() {
                             }
                             if (highestThreatLane !== -1) targetLane = highestThreatLane;
                         }
-                        
+
                         playCard(targetLane, 'opponent');
                     }
                 } else if (card.type === CARD_TYPES.SPELL) {
@@ -1726,10 +1987,10 @@ function botTurn() {
                 }
             }
         }
-        
+
         // 2. Attack Phase
         if (evaluateLethal()) triggerBotEmote('lethal');
-        
+
         let attackPromises = [];
         for (let i = 0; i < 5; i++) {
             const card = gameState.opponent.board[i];
@@ -1738,7 +1999,7 @@ function botTurn() {
                     setTimeout(() => {
                         const attackerEl = document.querySelector(`#opp-slot-${i} .card`);
                         if(attackerEl) attackerEl.classList.add('attack-animation-bot');
-                        
+
                         // Secret check
                         const pSecretIdx = gameState.player.secrets.findIndex(s => s.trigger === 'on_attacked');
                         if (pSecretIdx > -1 && gameState.player.secrets[pSecretIdx].effect.killAttacker) {
@@ -1757,22 +2018,22 @@ function botTurn() {
                                 // Trade
                                 let pDmg = pCard.atk;
                                 let oDmg = card.atk;
-                                
+
                                 if (pCard.keywords && pCard.keywords.includes('escudo')) { pCard.keywords = pCard.keywords.filter(k=>k!=='escudo'); oDmg = 0; }
                                 if (card.keywords && card.keywords.includes('escudo')) { card.keywords = card.keywords.filter(k=>k!=='escudo'); pDmg = 0; }
-                                
+
                                 pCard.hp -= oDmg;
                                 card.hp -= pDmg;
-                                
+
                                 if(card.keywords && card.keywords.includes('veneno') && oDmg>0) pCard.hp = 0;
                                 if(pCard.keywords && pCard.keywords.includes('veneno') && pDmg>0) card.hp = 0;
-                                
+
                                 triggerDamageAnimation('opponent', i, 'player', i, oDmg);
                                 if (pDmg > 0) triggerDamageAnimation('player', i, 'opponent', i, pDmg);
-                                
+
                                 const pSlotEl = document.querySelector(`#player-slot-${i} .card`);
                                 if(pSlotEl) pSlotEl.classList.add('collision-flash');
-                                
+
                             } else {
                                 // Face
                                 const hSecretIdx = gameState.player.secrets.findIndex(s => s.trigger === 'on_hero_attacked');
@@ -1785,7 +2046,7 @@ function botTurn() {
                                 } else {
                                     gameState.player.hp -= card.atk;
                                     triggerDamageAnimation('opponent', i, 'player', null, card.atk);
-                                    
+
                                     const pAvatar = document.getElementById('battle-player-avatar');
                                     if(pAvatar) {
                                         pAvatar.classList.add('screen-shake');
@@ -1794,7 +2055,7 @@ function botTurn() {
                                     triggerBotEmote('damage');
                                 }
                             }
-                            
+
                             if(attackerEl) attackerEl.classList.remove('attack-animation-bot');
                             card.exhausted = true;
                             checkDeadCards();
@@ -1805,7 +2066,7 @@ function botTurn() {
                 }));
             }
         }
-        
+
         Promise.all(attackPromises).then(() => {
             setTimeout(() => {
                 checkWinCondition();

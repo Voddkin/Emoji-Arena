@@ -18,7 +18,7 @@
                     <div class="xp-bar-container"><div class="xp-bar-fill" id="menu-xp-fill"></div></div>
                 </div>
             </div>
-            
+
             <h1 class="game-title">Card Wars</h1>
             <div class="menu-buttons">
                 <button id="btn-play-modes" style="font-size:1.5rem; padding: 20px 40px; background: linear-gradient(to bottom, #e67e22, #d35400);">JOGAR</button>
@@ -30,7 +30,7 @@
                 </div>
                 <button id="btn-settings">Settings</button>
             </div>
-            
+
             <!-- Play Modes Modal -->
             <div id="play-modes-modal" class="overlay hidden">
                 <div class="modal-content large">
@@ -81,17 +81,17 @@
                 <span class="stat">✨ <span id="shop-stardust">0</span></span>
                 <span class="stat">🎟️ <span id="shop-tickets">0</span></span>
             </div>
-            
+
             <div class="shop-tabs">
                 <button class="tab-btn active" data-target="tab-packs">Packages</button>
                 <button class="tab-btn" data-target="tab-daily">Daily Deals</button>
                 <button class="tab-btn" data-target="tab-cosmetics">Cosmetics</button>
             </div>
-            
+
             <div id="pity-timer-display" style="text-align: center; color: #f1c40f; font-weight: bold; margin-bottom: 10px;">
                 Sorte Acumulada: 0/10
             </div>
-            
+
             <div class="shop-content active" id="tab-packs">
                 <div class="shop-items-grid">
                     <div class="shop-item">
@@ -136,14 +136,14 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="shop-content" id="tab-daily">
                 <h3>Ofertas do Dia</h3>
                 <div class="shop-items-grid" id="daily-deals-container">
                     <!-- Daily deals injected via JS -->
                 </div>
             </div>
-            
+
             <div class="shop-content" id="tab-cosmetics">
                 <h3>Avatares</h3>
                 <div class="shop-items-grid" id="avatars-container">
@@ -188,11 +188,11 @@
                 <span id="draft-count">Cartas Selecionadas: 0/40</span>
                 <p class="instruction-text">Escolha 1 entre as 3 opções abaixo para adicionar ao seu Deck de Arena.</p>
             </div>
-            
+
             <div class="draft-choices-container" id="draft-choices">
                 <!-- 3 Random Cards Injected Here -->
             </div>
-            
+
             <div class="deck-area" style="margin-top:20px; height: 180px; overflow-x: auto; display: flex;">
                 <h3>Deck Atual</h3>
                 <div class="cards-grid compact" id="draft-deck-grid" style="display:flex; flex-direction: row; gap: 10px;">
@@ -244,7 +244,7 @@
                     <div class="slot opponent-slot" id="opp-slot-4"></div>
                     <div class="slot player-slot" id="player-slot-4"></div>
                 </div>
-                
+
                 <div class="turn-indicator" id="turn-indicator">Your Turn</div>
             </div>
 
@@ -264,7 +264,7 @@
                     <button id="btn-end-turn">End Turn</button>
                 </div>
             </div>
-            
+
             <!-- Mulligan Overlay -->
             <div id="mulligan-overlay" class="overlay hidden">
                 <h2 style="color:var(--accent-color);">Mulligan</h2>
@@ -279,7 +279,7 @@
                 <p id="game-over-rewards">+50 💰</p>
                 <button id="btn-return-menu">Return to Menu</button>
             </div>
-            
+
             <!-- Pack Opening Overlay -->
             <div id="pack-opening-overlay" class="overlay hidden">
                 <h2>Pack Opened!</h2>
@@ -289,7 +289,7 @@
                 <button id="btn-close-pack">Close</button>
             </div>
         </div>
-        
+
         <!-- Daily Quests Overlay -->
         <div id="quests-overlay" class="overlay hidden">
             <div class="modal-content">
@@ -303,21 +303,33 @@
 
         <!-- Settings Overlay -->
         <div id="settings-overlay" class="overlay hidden">
-            <div class="modal-content">
-                <h2>Settings</h2>
-                <div class="settings-options">
-                    <label>
-                        <input type="checkbox" id="setting-music" checked> Music
-                    </label>
-                    <label>
-                        <input type="checkbox" id="setting-sfx" checked> Sound Effects
-                    </label>
-                    <button id="btn-reset-data" class="danger-btn">Reset Save Data</button>
+            <div class="modal-content" style="width: 400px;">
+                <h2>Configurações de Áudio</h2>
+                <div class="settings-options" style="width: 100%;">
+
+                    <div class="audio-slider-container">
+                        <label for="slider-master-vol">Volume Geral: <span id="val-master-vol">100%</span></label>
+                        <input type="range" id="slider-master-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <div class="audio-slider-container">
+                        <label for="slider-music-vol">Música (BGM): <span id="val-music-vol">100%</span></label>
+                        <input type="range" id="slider-music-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <div class="audio-slider-container">
+                        <label for="slider-sfx-vol">Efeitos (SFX): <span id="val-sfx-vol">100%</span></label>
+                        <input type="range" id="slider-sfx-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <hr style="width: 100%; border-color: #555; margin: 15px 0;">
+
+                    <button id="btn-reset-data" class="danger-btn">Apagar Progresso (Reset)</button>
                 </div>
-                <button id="btn-close-settings">Close</button>
+                <button id="btn-close-settings">Voltar</button>
             </div>
         </div>
-        
+
         <!-- Achievements Overlay -->
         <div id="achievements-overlay" class="overlay hidden">
             <div class="modal-content large">
@@ -328,7 +340,7 @@
                 <button id="btn-close-achievements">Close</button>
             </div>
         </div>
-        
+
         <!-- Forge Modal -->
         <div id="forge-modal" class="overlay hidden">
             <div class="modal-content">
