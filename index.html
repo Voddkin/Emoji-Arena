@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Wars: Ultimate Edition</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="game-container">
+        <!-- Main Menu -->
+        <div id="main-menu" class="screen active">
+            <div class="player-profile-top">
+                <div class="avatar-display" id="menu-avatar">🧙‍♂️</div>
+                <div class="progression-info">
+                    <div class="rank-info" id="menu-rank">🟤 Rank: Bronze (0 Elo)</div>
+                    <div class="xp-info">Nível <span id="menu-level">1</span></div>
+                    <div class="xp-bar-container"><div class="xp-bar-fill" id="menu-xp-fill"></div></div>
+                </div>
+            </div>
+            
+            <h1 class="game-title">Card Wars</h1>
+            <div class="menu-buttons">
+                <button id="btn-play-modes" style="font-size:1.5rem; padding: 20px 40px; background: linear-gradient(to bottom, #e67e22, #d35400);">JOGAR</button>
+                <button id="btn-collection">Collection & Forge</button>
+                <button id="btn-shop">Mega Shop</button>
+                <div class="menu-row">
+                    <button id="btn-quests" style="width:48%">Quests</button>
+                    <button id="btn-achievements" style="width:48%">Trophies</button>
+                </div>
+                <button id="btn-settings">Settings</button>
+            </div>
+            
+            <!-- Play Modes Modal -->
+            <div id="play-modes-modal" class="overlay hidden">
+                <div class="modal-content large">
+                    <h2>Selecione o Modo</h2>
+                    <div class="play-modes-grid">
+                        <div class="play-mode-card">
+                            <h3>Aventura (PVE)</h3>
+                            <p>Derrote 5 Chefões temáticos e ganhe recompensas épicas.</p>
+                            <p id="adventure-progress-text">Progresso: 0/5</p>
+                            <button id="btn-play-adventure" class="buy-btn">Embarcar</button>
+                        </div>
+                        <div class="play-mode-card">
+                            <h3>Ranqueado (PVP)</h3>
+                            <p>Enfrente IAs avançadas e suba seu Elo para virar Mestre.</p>
+                            <p>Custo: 1 🎟️</p>
+                            <button id="btn-play-ranked" class="buy-btn btn-ranked">Procurar Partida</button>
+                        </div>
+                        <div class="play-mode-card">
+                            <h3>Arena (Draft)</h3>
+                            <p>Crie um deck de 10 cartas na hora. Ganhe até 12 vezes.</p>
+                            <p>Custo: 150 💰</p>
+                            <button id="btn-play-draft" class="buy-btn">Entrar na Arena</button>
+                        </div>
+                        <div class="play-mode-card">
+                            <h3>Treino Livre</h3>
+                            <p>Partida casual contra o Bot Fácil.</p>
+                            <p>Gratuito</p>
+                            <button id="btn-play-casual" class="buy-btn">Treinar</button>
+                        </div>
+                    </div>
+                    <button id="btn-close-play-modes" class="danger-btn">Voltar</button>
+                </div>
+            </div>
+            <div class="player-stats">
+                <div class="stat" title="Ouro"><span class="icon">💰</span> <span id="menu-coins">0</span></div>
+                <div class="stat" title="Gemas"><span class="icon">💎</span> <span id="menu-gems">0</span></div>
+                <div class="stat" title="Pó Estelar"><span class="icon">✨</span> <span id="menu-stardust">0</span></div>
+                <div class="stat" title="Fichas de Arena"><span class="icon">🎟️</span> <span id="menu-tickets">0</span></div>
+            </div>
+        </div>
+
+        <!-- Shop Screen -->
+        <div id="shop-screen" class="screen">
+            <h2>Mega Shop</h2>
+            <div class="currency-display">
+                <span class="stat">💰 <span id="shop-coins">0</span></span>
+                <span class="stat">💎 <span id="shop-gems">0</span></span>
+                <span class="stat">✨ <span id="shop-stardust">0</span></span>
+                <span class="stat">🎟️ <span id="shop-tickets">0</span></span>
+            </div>
+            
+            <div class="shop-tabs">
+                <button class="tab-btn active" data-target="tab-packs">Packages</button>
+                <button class="tab-btn" data-target="tab-daily">Daily Deals</button>
+                <button class="tab-btn" data-target="tab-cosmetics">Cosmetics</button>
+            </div>
+            
+            <div id="pity-timer-display" style="text-align: center; color: #f1c40f; font-weight: bold; margin-bottom: 10px;">
+                Sorte Acumulada: 0/10
+            </div>
+            
+            <div class="shop-content active" id="tab-packs">
+                <div class="shop-items-grid">
+                    <div class="shop-item">
+                        <h3>Pacote Básico</h3>
+                        <p>5 Cartas. Alta chance Comum/Incomum.</p>
+                        <button class="buy-btn" data-type="basic" data-cost="100" data-currency="coins">Comprar - 100 💰</button>
+                    </div>
+                    <div class="shop-item">
+                        <h3>Pacote Épico</h3>
+                        <p>5 Cartas. Garante 1 Épica!</p>
+                        <button class="buy-btn" data-type="epic" data-cost="300" data-currency="coins">Comprar - 300 💰</button>
+                    </div>
+                    <div class="shop-item">
+                        <h3>Pacote da Flora</h3>
+                        <p>Focado nas tribos Natureza e Comida.</p>
+                        <button class="buy-btn" data-type="flora" data-cost="200" data-currency="coins">Comprar - 200 💰</button>
+                    </div>
+                    <div class="shop-item">
+                        <h3>Pacote da Cidade</h3>
+                        <p>Focado em Urbano, Profissão e Veículo.</p>
+                        <button class="buy-btn" data-type="city" data-cost="200" data-currency="coins">Comprar - 200 💰</button>
+                    </div>
+                    <div class="shop-item">
+                        <h3>Pacote Elemental</h3>
+                        <p>Focado em magia elementais e terrenos.</p>
+                        <button class="buy-btn" data-type="elemental" data-cost="150" data-currency="coins">Comprar - 150 💰</button>
+                    </div>
+                    <div class="shop-item premium">
+                        <h3>Baú Lendário</h3>
+                        <p>Garante 1 Carta Lendária!</p>
+                        <button class="buy-btn" data-type="legendary" data-cost="500" data-currency="gems">Comprar - 500 💎</button>
+                    </div>
+                    <div class="shop-item mythic">
+                        <h3>Baú Mítico</h3>
+                        <p>Garante 1 Mítica (Win Condition)!</p>
+                        <button class="buy-btn" data-type="mythic" data-cost="1000" data-currency="gems">Comprar - 1000 💎</button>
+                    </div>
+                    <div class="shop-item">
+                        <h3>Fichas de Arena</h3>
+                        <p>3x Tickets para o modo Ranqueado.</p>
+                        <button class="buy-btn" data-type="tickets" data-cost="50" data-currency="gems">Comprar - 50 💎</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="shop-content" id="tab-daily">
+                <h3>Ofertas do Dia</h3>
+                <div class="shop-items-grid" id="daily-deals-container">
+                    <!-- Daily deals injected via JS -->
+                </div>
+            </div>
+            
+            <div class="shop-content" id="tab-cosmetics">
+                <h3>Avatares</h3>
+                <div class="shop-items-grid" id="avatars-container">
+                    <!-- Avatares injected via JS -->
+                </div>
+            </div>
+
+            <button class="btn-back">Back to Menu</button>
+        </div>
+
+        <!-- Collection Screen -->
+        <div id="collection-screen" class="screen">
+            <h2>Card Collection & Forge</h2>
+            <div class="collection-controls">
+                <div class="deck-header">
+                    <span id="deck-count">0/10 Cards</span>
+                    <button id="btn-toggle-forge">Enter Forge Mode</button>
+                </div>
+                <p class="instruction-text" id="collection-instructions">Click a card to add/remove from deck.</p>
+            </div>
+            <div class="collection-layout">
+                <div class="deck-area" id="deck-area-container">
+                    <h3>Active Deck</h3>
+                    <div class="cards-grid compact" id="deck-grid">
+                        <!-- Deck cards injected here -->
+                    </div>
+                </div>
+                <div class="inventory-area">
+                    <h3>Your Cards</h3>
+                    <div class="cards-grid" id="collection-grid">
+                        <!-- Cards injected here -->
+                    </div>
+                </div>
+            </div>
+            <button class="btn-back">Back to Menu</button>
+        </div>
+
+        <!-- Draft Screen -->
+        <div id="draft-screen" class="screen">
+            <h2>Arena: Selecione suas Cartas</h2>
+            <div class="collection-controls">
+                <span id="draft-count">Cartas Selecionadas: 0/40</span>
+                <p class="instruction-text">Escolha 1 entre as 3 opções abaixo para adicionar ao seu Deck de Arena.</p>
+            </div>
+            
+            <div class="draft-choices-container" id="draft-choices">
+                <!-- 3 Random Cards Injected Here -->
+            </div>
+            
+            <div class="deck-area" style="margin-top:20px; height: 180px; overflow-x: auto; display: flex;">
+                <h3>Deck Atual</h3>
+                <div class="cards-grid compact" id="draft-deck-grid" style="display:flex; flex-direction: row; gap: 10px;">
+                    <!-- Deck cards injected here -->
+                </div>
+            </div>
+            <button id="btn-abandon-draft" class="danger-btn" style="position: absolute; bottom: 20px; right: 20px;">Abandonar Arena</button>
+        </div>
+
+        <!-- Battle Screen -->
+        <div id="battle-screen" class="screen">
+            <!-- Top / Opponent -->
+            <div class="player-area opponent-area">
+                <div class="hero-container">
+                    <div class="hero-avatar bot-avatar">🤖<div id="bot-emote" class="emote-bubble hidden">😈</div></div>
+                    <div class="hero-health" id="opponent-health" title="Health">❤️ 30</div>
+                    <div class="hero-credits" id="opponent-credits" title="Base Credits">⚡ 1</div>
+                    <div class="hero-bank" id="opponent-bank" title="Battery">🔋 0</div>
+                </div>
+                <div class="hand-container" id="opponent-hand">
+                    <!-- Face down cards -->
+                </div>
+            </div>
+
+            <!-- Battlefield Lanes / Center -->
+            <div class="battlefield" id="battlefield-zone">
+                <div class="lane" data-lane="0" id="lane-0">
+                    <div class="env-overlay" id="env-overlay-0"></div>
+                    <div class="slot opponent-slot" id="opp-slot-0"></div>
+                    <div class="slot player-slot" id="player-slot-0"></div>
+                </div>
+                <div class="lane" data-lane="1" id="lane-1">
+                    <div class="env-overlay" id="env-overlay-1"></div>
+                    <div class="slot opponent-slot" id="opp-slot-1"></div>
+                    <div class="slot player-slot" id="player-slot-1"></div>
+                </div>
+                <div class="lane" data-lane="2" id="lane-2">
+                    <div class="env-overlay" id="env-overlay-2"></div>
+                    <div class="slot opponent-slot" id="opp-slot-2"></div>
+                    <div class="slot player-slot" id="player-slot-2"></div>
+                </div>
+                <div class="lane" data-lane="3" id="lane-3">
+                    <div class="env-overlay" id="env-overlay-3"></div>
+                    <div class="slot opponent-slot" id="opp-slot-3"></div>
+                    <div class="slot player-slot" id="player-slot-3"></div>
+                </div>
+                <div class="lane" data-lane="4" id="lane-4">
+                    <div class="env-overlay" id="env-overlay-4"></div>
+                    <div class="slot opponent-slot" id="opp-slot-4"></div>
+                    <div class="slot player-slot" id="player-slot-4"></div>
+                </div>
+                
+                <div class="turn-indicator" id="turn-indicator">Your Turn</div>
+            </div>
+
+            <!-- Bottom / Player -->
+            <div class="player-area self-area">
+                <div class="hand-container" id="player-hand">
+                    <!-- Player cards -->
+                </div>
+                <div class="hero-container">
+                    <div class="hero-avatar player-avatar" id="battle-player-avatar">🧙‍♂️</div>
+                    <div class="hero-health" id="player-health" title="Health">❤️ 30</div>
+                    <div class="hero-credits" id="player-credits" title="Base Credits">⚡ 1</div>
+                    <div class="hero-bank" id="player-bank" title="Battery">🔋 0</div>
+                </div>
+                <div class="action-buttons">
+                    <button id="btn-hero-power" class="btn btn-outline" style="font-size: 0.9em; padding: 5px;">Power (2)</button>
+                    <button id="btn-end-turn">End Turn</button>
+                </div>
+            </div>
+            
+            <!-- Mulligan Overlay -->
+            <div id="mulligan-overlay" class="overlay hidden">
+                <h2 style="color:var(--accent-color);">Mulligan</h2>
+                <p>Escolha UMA carta para trocar (ou clique Pronto para manter):</p>
+                <div id="mulligan-cards-container" style="display: flex; gap: 20px; justify-content: center; margin: 20px 0;"></div>
+                <button id="btn-mulligan-ready" class="btn btn-primary">Estou Pronto!</button>
+            </div>
+
+            <!-- Game Over Overlay -->
+            <div id="game-over-overlay" class="overlay hidden">
+                <h2 id="game-over-title">Victory!</h2>
+                <p id="game-over-rewards">+50 💰</p>
+                <button id="btn-return-menu">Return to Menu</button>
+            </div>
+            
+            <!-- Pack Opening Overlay -->
+            <div id="pack-opening-overlay" class="overlay hidden">
+                <h2>Pack Opened!</h2>
+                <div class="opened-cards-container" id="opened-cards">
+                    <!-- Revealed cards here -->
+                </div>
+                <button id="btn-close-pack">Close</button>
+            </div>
+        </div>
+        
+        <!-- Daily Quests Overlay -->
+        <div id="quests-overlay" class="overlay hidden">
+            <div class="modal-content">
+                <h2>Daily Quests</h2>
+                <div id="quests-container">
+                    <!-- Quests injected here -->
+                </div>
+                <button id="btn-close-quests">Close</button>
+            </div>
+        </div>
+
+        <!-- Settings Overlay -->
+        <div id="settings-overlay" class="overlay hidden">
+            <div class="modal-content">
+                <h2>Settings</h2>
+                <div class="settings-options">
+                    <label>
+                        <input type="checkbox" id="setting-music" checked> Music
+                    </label>
+                    <label>
+                        <input type="checkbox" id="setting-sfx" checked> Sound Effects
+                    </label>
+                    <button id="btn-reset-data" class="danger-btn">Reset Save Data</button>
+                </div>
+                <button id="btn-close-settings">Close</button>
+            </div>
+        </div>
+        
+        <!-- Achievements Overlay -->
+        <div id="achievements-overlay" class="overlay hidden">
+            <div class="modal-content large">
+                <h2>Trophies & Achievements</h2>
+                <div id="achievements-container">
+                    <!-- Achievements injected here -->
+                </div>
+                <button id="btn-close-achievements">Close</button>
+            </div>
+        </div>
+        
+        <!-- Forge Modal -->
+        <div id="forge-modal" class="overlay hidden">
+            <div class="modal-content">
+                <h2 id="forge-title">Forge Card</h2>
+                <div id="forge-card-preview"></div>
+                <p id="forge-desc">Do you want to craft this card?</p>
+                <div class="menu-row">
+                    <button id="btn-confirm-forge" class="buy-btn">Craft</button>
+                    <button id="btn-cancel-forge" class="danger-btn" style="margin-top:0">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification System -->
+    <div id="notification-container"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
