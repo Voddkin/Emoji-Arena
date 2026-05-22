@@ -1,0 +1,1 @@
+print("Validating SecOps approach...")
