@@ -838,7 +838,31 @@ let playerProfile = {
     pityTimer: 0 // +1 for each pack. Resets on Legendary/Mythic.
 };
 
-let currentMatchMode = 'casual'; // casual, ranked, adventure, draft
+
+let currentMatchMode = 'casual'; // casual, ranked, roguelike, endless, draft
+let gameState = {
+    turn: 0,
+    isPlayerTurn: true,
+    player: {
+        hp: 30, maxHp: 30,
+        credits: 1, maxCredits: 1,
+        battery: 0,
+        deck: [], hand: [], board: [null, null, null, null, null],
+        secrets: [],
+        heroUsed: false
+    },
+    opponent: {
+        hp: 30, maxHp: 30,
+        credits: 1, maxCredits: 1,
+        battery: 0,
+        deck: [], hand: [], board: [null, null, null, null, null],
+        secrets: [],
+        isBot: true, botLevel: 'medium',
+        heroUsed: false,
+        selectedCardIndex: null
+    }
+};
+
 
 // Helper functions
 function getCardById(id) {
@@ -901,17 +925,19 @@ function enforceDeckLimits() {
 }
 
 function updateUIProfile() {
+    updateHUD();
+    renderChestSlots();
     // Menu
-    document.getElementById('menu-coins').innerText = playerProfile.coins;
-    document.getElementById('menu-gems').innerText = playerProfile.gems;
-    document.getElementById('menu-stardust').innerText = playerProfile.stardust;
-    document.getElementById('menu-tickets').innerText = playerProfile.tickets;
-    document.getElementById('menu-level').innerText = playerProfile.level;
-    document.getElementById('menu-rank').innerText = getRankString(playerProfile.elo);
-    document.getElementById('menu-avatar').innerText = playerProfile.activeAvatar;
+    if(document.getElementById('menu-coins')) document.getElementById('menu-coins').innerText = playerProfile.coins;
+    if(document.getElementById('menu-gems')) document.getElementById('menu-gems').innerText = playerProfile.gems;
+    if(document.getElementById('menu-stardust')) document.getElementById('menu-stardust').innerText = playerProfile.stardust;
+    if(document.getElementById('menu-tickets')) document.getElementById('menu-tickets').innerText = playerProfile.tickets;
+    if(document.getElementById('menu-level')) document.getElementById('menu-level').innerText = playerProfile.level;
+    if(document.getElementById('menu-rank')) document.getElementById('menu-rank').innerText = getRankString(playerProfile.elo);
+    if(document.getElementById('menu-avatar')) document.getElementById('menu-avatar').innerText = playerProfile.activeAvatar;
 
     const xpReq = playerProfile.level * 100;
-    document.getElementById('menu-xp-fill').style.width = `${(playerProfile.xp / xpReq) * 100}%`;
+    if(document.getElementById('menu-xp-fill')) document.getElementById('menu-xp-fill').style.width = `${(playerProfile.xp / xpReq) * 100}%`;
 
     // Shop
     document.getElementById('shop-coins').innerText = playerProfile.coins;
@@ -2334,6 +2360,14 @@ function triggerDamageAnimation(attackerSide, attackerIdx, defenderSide, defende
     if (damageAmount <= 0) return;
 
     const gameContainer = document.getElementById('battle-screen');
+
+    // Brutal screen shake on damage >= 5
+    if (damageAmount >= 5) {
+        const appEl = document.getElementById('game-app') || document.body;
+        appEl.classList.add('screen-shake-brutal');
+        setTimeout(() => appEl.classList.remove('screen-shake-brutal'), 400);
+    }
+
     const dmgEl = document.createElement('div');
     dmgEl.className = 'damage-number';
     dmgEl.innerText = `-${damageAmount}`;
@@ -2369,6 +2403,8 @@ function triggerDamageAnimation(attackerSide, attackerIdx, defenderSide, defende
 function triggerHealAnimation(side, index, amount) {
     if (amount <= 0) return;
     const gameContainer = document.getElementById('battle-screen');
+
+
     AudioManager.playSFX('hero_heal');
     const healEl = document.createElement('div');
     healEl.className = 'heal-number';
@@ -2450,6 +2486,13 @@ function endGame(isWin) {
 
         // Battle Pass integration (Módulo 8.1)
         if(typeof addCrowns === 'function') addCrowns(10);
+        // Grant a chest if there's an empty slot
+        if (!playerProfile.chests) playerProfile.chests = [null, null, null, null];
+        const emptySlotIdx = playerProfile.chests.findIndex(c => c === null);
+        if (emptySlotIdx !== -1) {
+            playerProfile.chests[emptySlotIdx] = { id: 'basic_chest', unlockTime: Date.now() + 30000 }; // 30 sec dummy
+        }
+
 
         if (currentMatchMode === 'ranked') {
             playerProfile.elo += 25;
@@ -2580,6 +2623,49 @@ function checkWinCondition() {
     }
 }
 
+
+
+// Chest Time Updater
+setInterval(() => {
+    if (!playerProfile.chests) return;
+    const now = Date.now();
+    let updated = false;
+    for(let i=0; i<4; i++) {
+        const chest = playerProfile.chests[i];
+        if (chest && chest.unlockTime) {
+            const slotEl = document.querySelector(`#chest-slot-${i} .chest-timer`);
+            if (slotEl) {
+                const diff = chest.unlockTime - now;
+                if (diff <= 0) {
+                    slotEl.innerText = "PRONTO!";
+                    slotEl.style.color = "#2ecc71";
+                } else {
+                    const sec = Math.ceil(diff / 1000);
+                    const m = Math.floor(sec / 60);
+                    const s = sec % 60;
+                    slotEl.innerText = `${m}m ${s}s`;
+                }
+            }
+        }
+    }
+}, 1000);
+
+
+function triggerEndlessMutationEvent(event, target) {
+    if (currentMatchMode !== 'endless' || !playerProfile.endlessState || !playerProfile.endlessState.activeMutation) return;
+    const mut = playerProfile.endlessState.activeMutation;
+
+    if (event === 'turn' && mut.effect === 'toxic_gas') {
+        // Example logic: damage all troops slightly each turn
+        const side = gameState.isPlayerTurn ? 'player' : 'opponent';
+        gameState[side].board.forEach((card, idx) => {
+            if(card) {
+                card.hp -= 1;
+                triggerDamageAnimation(side === 'player'?'opponent':'player', null, side, idx, 1);
+            }
+        });
+    }
+}
 
 // --- MATCHMAKING & VS SCREEN ---
 function startMatchmaking(isBot = true) {
@@ -2912,4 +2998,149 @@ function startEndlessMode() {
     saveProfile();
     currentMatchMode = 'endless';
     startMatchmaking(true);
+}
+
+
+
+// --- BOTTOM NAV BAR LOGIC (SPA) ---
+function setupBottomNav() {
+    const navItems = {
+        'nav-shop': screens.SHOP,
+        'nav-collection': screens.COLLECTION,
+        'nav-home': screens.MENU,
+        'nav-quests': 'quests-overlay', // Reusing old overlay ID or creating new screen
+        'nav-guild': 'guild-screen' // Assumes guild screen exists or will handle gracefully
+    };
+
+    Object.keys(navItems).forEach(navId => {
+        const el = document.getElementById(navId);
+        if(el) {
+            el.addEventListener('click', () => {
+                // Remove active from all nav items
+                document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+                // Add active to clicked
+                el.classList.add('active');
+
+                const targetScreen = navItems[navId];
+
+                // If it's an overlay (like quests), open it on top
+                if (targetScreen === 'quests-overlay') {
+                    renderQuests();
+                    document.getElementById('quests-overlay').classList.remove('hidden');
+                    return;
+                } else if (targetScreen === 'guild-screen') {
+                    // Logic for guild if exists
+                    const guildEl = document.getElementById('guild-overlay');
+                    if(guildEl) guildEl.classList.remove('hidden');
+                    return;
+                }
+
+                // Otherwise do slide transition
+                showScreenSPA(targetScreen);
+            });
+        }
+    });
+}
+
+function showScreenSPA(screenId) {
+    // Closes all overlays first
+    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+
+    const allScreens = document.querySelectorAll('.screen');
+    allScreens.forEach(screen => {
+        if (screen.id === screenId) {
+            screen.classList.add('active');
+            screen.classList.remove('slide-left');
+        } else {
+            if (screen.classList.contains('active')) {
+                screen.classList.add('slide-left');
+                setTimeout(() => {
+                    screen.classList.remove('active');
+                    screen.classList.remove('slide-left');
+                }, 400); // Matches CSS transition time
+            }
+        }
+    });
+}
+
+function updateHUD() {
+    document.getElementById('hud-level-val').innerText = playerProfile.stats.level || 1;
+
+    // Update XP Bar (Requires a small calc if we use the old logic)
+    const xpNeeded = (playerProfile.stats.level || 1) * 100;
+    const progress = Math.min(100, ((playerProfile.stats.xp || 0) / xpNeeded) * 100);
+    document.getElementById('hud-xp-fill').style.width = `${progress}%`;
+
+    document.getElementById('hud-coins').innerText = playerProfile.coins;
+    document.getElementById('hud-gems').innerText = playerProfile.gems;
+    document.getElementById('hud-dust').innerText = playerProfile.stardust;
+
+    // Also update giant avatar
+    document.getElementById('lobby-avatar').innerText = playerProfile.activeAvatar || '🧙‍♂️';
+
+    // Render Peeking Cards
+    const peekingContainer = document.getElementById('lobby-peeking-cards');
+    if (peekingContainer && playerProfile.deck && playerProfile.deck.length >= 3) {
+        // Shuffle a bit or take top 3
+        const deckSample = playerProfile.deck.slice(0, 3);
+        peekingContainer.innerHTML = '';
+        deckSample.forEach((cardId, i) => {
+            const cardData = getCardById(cardId);
+            const cardEl = document.createElement('div');
+            cardEl.className = `peek-card card-${i+1}`;
+            if (cardData) {
+                // Apply a visual style matching the card
+                let tIcon = '❓';
+                if(cardData.tribes && cardData.tribes.length > 0) {
+                    const mainTribe = cardData.tribes[0];
+                    if(mainTribe === TRIBES.NATUREZA) tIcon = '🍃';
+                    if(mainTribe === TRIBES.URBANO) tIcon = '🏙️';
+                    if(mainTribe === TRIBES.ANIMAL) tIcon = '🐾';
+                    if(mainTribe === TRIBES.AQUATICO) tIcon = '💧';
+                    if(mainTribe === TRIBES.MAGICO) tIcon = '✨';
+                    if(mainTribe === TRIBES.FERRAMENTA) tIcon = '🛠️';
+                    if(mainTribe === TRIBES.COMIDA) tIcon = '🍔';
+                    if(mainTribe === TRIBES.VEICULO) tIcon = '🚗';
+                    if(mainTribe === TRIBES.PROFISSAO) tIcon = '💼';
+                    if(mainTribe === TRIBES.TERRENO) tIcon = '🌍';
+                    if(mainTribe === TRIBES.MISTICO) tIcon = '🔮';
+                    if(mainTribe === TRIBES.TECNOLOGIA) tIcon = '⚙️';
+                }
+                cardEl.innerHTML = `<div style="text-align:center; font-size:1.5rem; margin-top:20px;">${tIcon}</div>`;
+                cardEl.style.background = `linear-gradient(135deg, ${cardData.color || '#34495e'}, #2c3e50)`;
+            }
+            peekingContainer.appendChild(cardEl);
+        });
+    }
+
+}
+
+function renderChestSlots() {
+    // Assuming playerProfile.chests = [{id: 'silver', unlockTime: null}, null, null, null]
+    if (!playerProfile.chests) {
+        playerProfile.chests = [null, null, null, null];
+    }
+
+    for(let i = 0; i < 4; i++) {
+        const slotEl = document.getElementById(`chest-slot-${i}`);
+        if(!slotEl) continue;
+
+        const chest = playerProfile.chests[i];
+        if (chest) {
+            slotEl.classList.add('filled');
+            slotEl.innerHTML = `📦<div class="chest-timer">Abrir</div>`;
+            slotEl.onclick = () => {
+                // Dummy open logic for now
+                playerProfile.chests[i] = null;
+                playerProfile.coins += 50;
+                saveProfile();
+                showNotification("Baú Aberto! +50 🪙", "success");
+                renderChestSlots();
+            };
+        } else {
+            slotEl.classList.remove('filled');
+            slotEl.innerHTML = `Vazio`;
+            slotEl.onclick = null;
+        }
+    }
 }
