@@ -22,6 +22,8 @@ def test_ui():
         page.screenshot(path="/home/jules/verification/screenshots/ui_shop.png")
 
         # Verify Giant Battle Button
+        page.click("#nav-home")
+        page.wait_for_timeout(500)
         page.click("#btn-play-modes")
         page.wait_for_timeout(500)
         page.screenshot(path="/home/jules/verification/screenshots/ui_play_modes.png")

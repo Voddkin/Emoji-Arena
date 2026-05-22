@@ -165,7 +165,7 @@ class AudioController {
         }
 
         // Load Settings
-        const savedAudio = JSON.parse(localStorage.getItem('cardWarsAudioPrefs') || '{}');
+        const savedAudio = JSON.parse(localStorage.getItem('EmojiArenaAudioPrefs') || '{}');
         this.masterVolume = savedAudio.masterVolume !== undefined ? savedAudio.masterVolume : 1.0;
         this.musicVolume = savedAudio.musicVolume !== undefined ? savedAudio.musicVolume : 0.8;
         this.sfxVolume = savedAudio.sfxVolume !== undefined ? savedAudio.sfxVolume : 1.0;
@@ -223,7 +223,7 @@ class AudioController {
     }
 
     saveSettings() {
-        localStorage.setItem('cardWarsAudioPrefs', JSON.stringify({
+        localStorage.setItem('EmojiArenaAudioPrefs', JSON.stringify({
             masterVolume: this.masterVolume,
             musicVolume: this.musicVolume,
             sfxVolume: this.sfxVolume
@@ -869,19 +869,29 @@ function getCardById(id) {
     return CardDatabase.find(c => c.id === id);
 }
 
+
 function saveProfile() {
-    localStorage.setItem('cardWarsUltimateProfile', JSON.stringify(playerProfile));
+    localStorage.setItem('Emoji_Arena_SaveData_v1', JSON.stringify(playerProfile));
     updateUIProfile();
 }
 
 function loadProfile() {
-    const saved = localStorage.getItem('cardWarsUltimateProfile');
+    // Migration logic
+    let saved = localStorage.getItem('Emoji_Arena_SaveData_v1');
+    if (!saved) {
+        const oldSaved = localStorage.getItem('cardWarsUltimateProfile');
+        if (oldSaved) {
+            saved = oldSaved;
+            localStorage.setItem('Emoji_Arena_SaveData_v1', oldSaved);
+            localStorage.removeItem('cardWarsUltimateProfile');
+            console.log("Migração de save antigo concluída com sucesso!");
+        }
+    }
+
     if (saved) {
-        // Merge to avoid missing new fields in updates
         const parsed = JSON.parse(saved);
         playerProfile = { ...playerProfile, ...parsed };
 
-        // Ensure arrays and objects are merged properly
         if(!playerProfile.unlockedAvatars) playerProfile.unlockedAvatars = ['🧙‍♂️'];
         if(!playerProfile.activeAvatar) playerProfile.activeAvatar = '🧙‍♂️';
         if(!playerProfile.hero) playerProfile.hero = 'mago';
@@ -889,7 +899,6 @@ function loadProfile() {
         if(!playerProfile.achievements) playerProfile.achievements = JSON.parse(JSON.stringify(ACHIEVEMENTS));
         if(playerProfile.pityTimer === undefined) playerProfile.pityTimer = 0;
 
-        // M6 Deck Enforcement
         enforceDeckLimits();
     }
     updateUIProfile();
@@ -1004,6 +1013,12 @@ function showNotification(message, type = "info") {
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
     loadProfile();
+    setupBottomNav();
+    updateUIProfile();
+    setTimeout(() => {
+        showNotification("Bem-vindo ao Emoji Arena!", "success");
+    }, 1000);
+
 
     // Main Menu Buttons
     document.getElementById('btn-play-modes').addEventListener('click', () => {
@@ -1233,7 +1248,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function resetSaveData() {
     if (confirm("TEM CERTEZA? Todo o seu progresso será perdido!")) {
-        localStorage.removeItem('cardWarsUltimateProfile');
+        localStorage.removeItem('Emoji_Arena_SaveData_v1');
         location.reload();
     }
 }
@@ -2668,19 +2683,41 @@ function triggerEndlessMutationEvent(event, target) {
 }
 
 // --- MATCHMAKING & VS SCREEN ---
+
+const LOADING_TIPS = [
+    'Dica: No Emoji Arena, gerenciar seus Créditos é a chave para a vitória.',
+    'Dica: Combine tribos iguais para criar sinergias devastadoras!',
+    'Dica: Fique de olho na Energia da Bateria. Ela não reseta entre turnos.',
+    'Dica: Cartas Lendárias e Míticas são raras, mas não imortais.',
+    'Dica: O Modo Fenda da Eternidade oferece recompensas que escalam infinitamente.'
+];
+
 function startMatchmaking(isBot = true) {
     if (playerProfile.deck.length < 40 && currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike') {
         showNotification("Seu deck precisa de 40 cartas!", "error");
         return;
     }
 
+    // Simulate Loading Screen Immersion
+    const tipEl = document.getElementById('matchmaking-tip');
+    if(tipEl) {
+        tipEl.innerText = LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)];
+    }
+
     // Configura bot ou oponente fake
     gameState.opponent.isBot = isBot;
     gameState.opponent.botLevel = 'medium';
 
-    showScreen('battle-screen');
-    startBattle();
+    const overlay = document.getElementById('matchmaking-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+
+    setTimeout(() => {
+        if(overlay) overlay.classList.add('hidden');
+        showScreenSPA('battle-screen'); // Ensure it uses SPA logic
+        startBattle();
+    }, 2500); // 2.5s of artificial AAA tension loading
 }
+
 
 function startBattle() {
     // Reset battle state
