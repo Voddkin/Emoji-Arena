@@ -1,3 +1,75 @@
+(() => {
+'use strict';
+
+// --- SecOps: DevTools & Reverse Engineering Traps ---
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+document.addEventListener('keydown', e => {
+    // Bloqueia F12
+    if (e.key === 'F12') e.preventDefault();
+    // Bloqueia Ctrl+Shift+I / J
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j')) e.preventDefault();
+    // Bloqueia Ctrl+U (Ver código-fonte)
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) e.preventDefault();
+});
+
+// Debugger Trap
+setInterval(() => {
+    (function() {
+        return false;
+    }
+    ['constructor']('debugger')
+    ());
+}, 1000);
+// --- Fim SecOps ---
+
+// --- SecOps: Auto-Clicker & Rate Limiting ---
+let lastActionTime = 0;
+let suspiciousClicks = 0;
+
+function withRateLimit(actionName, fn) {
+    return function(...args) {
+        const now = Date.now();
+        if (now - lastActionTime < 300) {
+            suspiciousClicks++;
+            if (suspiciousClicks > 5) {
+                console.warn("Auto-clicker detectado. Ignorando.");
+                // Optionally trigger ban if it gets too high, but let's just block for now
+            }
+            return; // Block execution
+        }
+        suspiciousClicks = 0;
+        lastActionTime = now;
+        return fn.apply(this, args);
+    };
+}
+
+
+// --- SecOps: Anti-Tampering (Integrity Check) ---
+function verifyIntegrity(func, expectedLengthRange) {
+    const funcStr = func.toString();
+    // In many browsers, modified functions by user scripts won't say [native code] anyway if they weren't native.
+    // Instead we check if the string representation is roughly the expected length.
+    // Hackers hooking into a function usually increase its length or change its signature.
+    if (funcStr.length < expectedLengthRange[0] || funcStr.length > expectedLengthRange[1]) {
+        SaveManager.triggerBan();
+        throw new Error("Integrity compromised.");
+    }
+}
+
+// We will run this periodically on critical functions
+setInterval(() => {
+    try {
+        verifyIntegrity(addXP, [50, 400]);
+        verifyIntegrity(triggerDamageAnimation, [500, 3000]);
+        verifyIntegrity(openPack, [1000, 5000]);
+    } catch(e) {
+        // App dies here
+    }
+}, 5000);
+
+
+
 const CARD_TYPES = {
     TROOP: 'troop',
     SPELL: 'spell',
@@ -864,32 +936,122 @@ let gameState = {
 };
 
 
+
+// SecOps: Congelamento de Bancos de Dados (Anti-Memory Editing)
+if (typeof CARD_TYPES !== 'undefined') Object.freeze(CARD_TYPES);
+if (typeof RARITIES !== 'undefined') Object.freeze(RARITIES);
+if (typeof TRIBES !== 'undefined') Object.freeze(TRIBES);
+if (typeof HEROES !== 'undefined') Object.freeze(HEROES);
+if (typeof CardDatabase !== 'undefined') Object.freeze(CardDatabase);
+if (typeof DAILY_QUESTS !== 'undefined') Object.freeze(DAILY_QUESTS);
+if (typeof ACHIEVEMENTS !== 'undefined') Object.freeze(ACHIEVEMENTS);
+if (typeof ENDLESS_MUTATIONS !== 'undefined') Object.freeze(ENDLESS_MUTATIONS);
+
 // Helper functions
 function getCardById(id) {
     return CardDatabase.find(c => c.id === id);
 }
 
 
+
+class SaveManager {
+    static SECRET_KEY = 'Em0j!@r3n4#2026';
+
+    static xorCipher(text) {
+        let result = '';
+        for (let i = 0; i < text.length; i++) {
+            result += String.fromCharCode(text.charCodeAt(i) ^ this.SECRET_KEY.charCodeAt(i % this.SECRET_KEY.length));
+        }
+        return result;
+    }
+
+    static generateHash(text) {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+            hash = (hash << 5) - hash + text.charCodeAt(i);
+            hash |= 0; // Convert to 32bit integer
+        }
+        return hash.toString(16); // Return hex string
+    }
+
+    static encryptAndSave(dataObj) {
+        const jsonStr = JSON.stringify(dataObj);
+        const xored = this.xorCipher(jsonStr);
+        const base64 = btoa(unescape(encodeURIComponent(xored)));
+        const hash = this.generateHash(jsonStr);
+
+        const finalSave = `${base64}|${hash}`;
+        localStorage.setItem('Emoji_Arena_SaveData_v1', finalSave);
+    }
+
+    static loadAndDecrypt() {
+        const saved = localStorage.getItem('Emoji_Arena_SaveData_v1');
+        if (!saved) return null;
+
+        // Anti-tamper simple check (Legacy save migration fallback disabled for security, but we check delimiter)
+        if (!saved.includes('|')) {
+            // Assume it's an old save (pre-crypto) and migrate it once
+            try {
+                const parsed = JSON.parse(saved);
+                this.encryptAndSave(parsed);
+                return parsed;
+            } catch(e) {
+                // If it fails, it's garbage
+                this.triggerBan();
+                return null;
+            }
+        }
+
+        const [base64, storedHash] = saved.split('|');
+        try {
+            const xored = decodeURIComponent(escape(atob(base64)));
+            const jsonStr = this.xorCipher(xored);
+
+            const calculatedHash = this.generateHash(jsonStr);
+            if (calculatedHash !== storedHash) {
+                this.triggerBan();
+                return null;
+            }
+
+            return JSON.parse(jsonStr);
+        } catch(e) {
+            this.triggerBan();
+            return null;
+        }
+    }
+
+    static triggerBan() {
+        localStorage.removeItem('Emoji_Arena_SaveData_v1');
+        // Reset local memory state
+        playerProfile = {
+            level: 1, xp: 0, elo: 0, coins: 0, gems: 0, stardust: 0, tickets: 0,
+            collection: { 'c_01': 2, 'c_02': 2, 'c_03': 2, 'c_04': 2, 'c_05': 2 },
+            deck: ['c_01','c_01','c_02','c_02','c_03','c_03','c_04','c_04','c_05','c_05'],
+            stats: { wins: 0, losses: 0, level: 1 }
+        };
+        // Show permanent red notification
+        const container = document.getElementById('notification-container');
+        if (container) {
+            const notif = document.createElement('div');
+            notif.className = 'notification error';
+            notif.style.backgroundColor = '#c0392b';
+            notif.style.color = 'white';
+            notif.innerText = 'DADOS CORROMPIDOS: Tentativa de manipulação detectada. Seu progresso foi resetado.';
+            container.appendChild(notif);
+        }
+    }
+}
+
+
 function saveProfile() {
-    localStorage.setItem('Emoji_Arena_SaveData_v1', JSON.stringify(playerProfile));
+    SaveManager.encryptAndSave(playerProfile);
     updateUIProfile();
 }
 
 function loadProfile() {
-    // Migration logic
-    let saved = localStorage.getItem('Emoji_Arena_SaveData_v1');
-    if (!saved) {
-        const oldSaved = localStorage.getItem('cardWarsUltimateProfile');
-        if (oldSaved) {
-            saved = oldSaved;
-            localStorage.setItem('Emoji_Arena_SaveData_v1', oldSaved);
-            localStorage.removeItem('cardWarsUltimateProfile');
-            console.log("Migração de save antigo concluída com sucesso!");
-        }
-    }
+    const parsed = SaveManager.loadAndDecrypt();
 
-    if (saved) {
-        const parsed = JSON.parse(saved);
+    if (parsed) {
         playerProfile = { ...playerProfile, ...parsed };
 
         if(!playerProfile.unlockedAvatars) playerProfile.unlockedAvatars = ['🧙‍♂️'];
@@ -972,7 +1134,7 @@ function getRankString(elo) {
     return `🟣 Mestre (${elo})`;
 }
 
-function addXP(amount) {
+const addXP = withRateLimit('addXP', function(amount) {
     playerProfile.xp += amount;
     const xpReq = playerProfile.level * 100;
     if (playerProfile.xp >= xpReq) {
@@ -981,7 +1143,7 @@ function addXP(amount) {
         playerProfile.gems += 10;
         showNotification(`Level Up! Nível ${playerProfile.level}. +10 Gemas!`, "success");
     }
-}
+});
 
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -1334,7 +1496,7 @@ function createCardHTML(card, showBack = false) {
 }
 
 // --- PACK OPENING LOGIC ---
-function openPack(type) {
+const openPack = withRateLimit('openPack', function(type) {
     playerProfile.stats.packsOpened++;
     playerProfile.pityTimer++;
 
@@ -1418,7 +1580,7 @@ function openPack(type) {
         container.appendChild(cardEl);
     }
     updateUIProfile();
-}
+});
 
 function createParticles(element, color) {
     const rect = element.getBoundingClientRect();
@@ -3181,3 +3343,5 @@ function renderChestSlots() {
         }
     }
 }
+
+})();
