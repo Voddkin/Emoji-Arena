@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Card Wars: Ultimate Edition</title>
+    <title>Emoji Arena</title>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Lilita+One&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -102,7 +102,7 @@
 
         <!-- Shop Screen -->
         <div id="shop-screen" class="screen">
-            <h2>Mega Shop</h2>
+            <h2>Mega Loja</h2>
             <div class="currency-display">
                 <span class="stat">💰 <span id="shop-coins">0</span></span>
                 <span class="stat">💎 <span id="shop-gems">0</span></span>
@@ -111,9 +111,9 @@
             </div>
 
             <div class="shop-tabs">
-                <button class="tab-btn active" data-target="tab-packs">Packages</button>
-                <button class="tab-btn" data-target="tab-daily">Daily Deals</button>
-                <button class="tab-btn" data-target="tab-cosmetics">Cosmetics</button>
+                <button class="tab-btn active" data-target="tab-packs">Pacotes</button>
+                <button class="tab-btn" data-target="tab-daily">Ofertas Diárias</button>
+                <button class="tab-btn" data-target="tab-cosmetics">Cosméticos</button>
             </div>
 
             <div id="pity-timer-display" style="text-align: center; color: #f1c40f; font-weight: bold; margin-bottom: 10px;">
@@ -179,34 +179,34 @@
                 </div>
             </div>
 
-            <button class="btn-back">Back to Menu</button>
+            <button class="btn-back">Voltar ao Menu</button>
         </div>
 
         <!-- Collection Screen -->
         <div id="collection-screen" class="screen">
-            <h2>Card Collection & Forge</h2>
+            <h2>Coleção e Forja</h2>
             <div class="collection-controls">
                 <div class="deck-header">
                     <span id="deck-count">0/10 Cards</span>
-                    <button id="btn-toggle-forge">Enter Forge Mode</button>
+                    <button id="btn-toggle-forge">Entrar na Forja</button>
                 </div>
-                <p class="instruction-text" id="collection-instructions">Click a card to add/remove from deck.</p>
+                <p class="instruction-text" id="collection-instructions">Clique numa carta para adicionar/remover.</p>
             </div>
             <div class="collection-layout">
                 <div class="deck-area" id="deck-area-container">
-                    <h3>Active Deck</h3>
+                    <h3>Deck Ativo</h3>
                     <div class="cards-grid compact" id="deck-grid">
                         <!-- Deck cards injected here -->
                     </div>
                 </div>
                 <div class="inventory-area">
-                    <h3>Your Cards</h3>
+                    <h3>Suas Cartas</h3>
                     <div class="cards-grid" id="collection-grid">
                         <!-- Cards injected here -->
                     </div>
                 </div>
             </div>
-            <button class="btn-back">Back to Menu</button>
+            <button class="btn-back">Voltar ao Menu</button>
         </div>
 
         <!-- Draft Screen -->
@@ -335,36 +335,36 @@
 
             <!-- Game Over Overlay -->
             <div id="game-over-overlay" class="overlay hidden">
-                <h2 id="game-over-title">Victory!</h2>
+                <h2 id="game-over-title">VITÓRIA!</h2>
                 <p id="game-over-rewards">+50 💰</p>
-                <button id="btn-return-menu">Return to Menu</button>
+                <button id="btn-return-menu">Voltar ao Menu</button>
             </div>
 
             <!-- Pack Opening Overlay -->
             <div id="pack-opening-overlay" class="overlay hidden">
-                <h2>Pack Opened!</h2>
+                <h2>Pacote Aberto!</h2>
                 <div class="opened-cards-container" id="opened-cards">
                     <!-- Revealed cards here -->
                 </div>
-                <button id="btn-close-pack">Close</button>
+                <button id="btn-close-pack">Fechar</button>
             </div>
         </div>
 
         <!-- Daily Quests Overlay -->
         <div id="quests-overlay" class="overlay hidden">
             <div class="modal-content">
-                <h2>Daily Quests</h2>
+                <h2>Missões Diárias</h2>
                 <div id="quests-container">
                     <!-- Quests injected here -->
                 </div>
-                <button id="btn-close-quests">Close</button>
+                <button id="btn-close-quests">Fechar</button>
             </div>
         </div>
 
         <!-- Settings Overlay -->
         <div id="settings-overlay" class="overlay hidden">
             <div class="modal-content" style="width: 400px;">
-                <h2>Configurações de Áudio</h2>
+                <h2>Configurações</h2>
                 <div class="settings-options" style="width: 100%;">
 
                     <div class="audio-slider-container">
@@ -393,23 +393,23 @@
         <!-- Achievements Overlay -->
         <div id="achievements-overlay" class="overlay hidden">
             <div class="modal-content large">
-                <h2>Trophies & Achievements</h2>
+                <h2>Troféus e Conquistas</h2>
                 <div id="achievements-container">
                     <!-- Achievements injected here -->
                 </div>
-                <button id="btn-close-achievements">Close</button>
+                <button id="btn-close-achievements">Fechar</button>
             </div>
         </div>
 
         <!-- Forge Modal -->
         <div id="forge-modal" class="overlay hidden">
             <div class="modal-content">
-                <h2 id="forge-title">Forge Card</h2>
+                <h2 id="forge-title">Forjar Carta</h2>
                 <div id="forge-card-preview"></div>
-                <p id="forge-desc">Do you want to craft this card?</p>
+                <p id="forge-desc">Deseja forjar esta carta?</p>
                 <div class="menu-row">
-                    <button id="btn-confirm-forge" class="buy-btn">Craft</button>
-                    <button id="btn-cancel-forge" class="danger-btn" style="margin-top:0">Cancel</button>
+                    <button id="btn-confirm-forge" class="buy-btn">Forjar</button>
+                    <button id="btn-cancel-forge" class="danger-btn" style="margin-top:0">Cancelar</button>
                 </div>
             </div>
         </div>
@@ -510,7 +510,7 @@
                 <!-- Runs injected here -->
             </div>
 
-            <button class="btn-back" style="position: static; margin: 30px auto 0 auto; width: 250px;">Back to Menu</button>
+            <button class="btn-back" style="position: static; margin: 30px auto 0 auto; width: 250px;">Voltar ao Menu</button>
         </div>
 
     <!-- Notification System -->
