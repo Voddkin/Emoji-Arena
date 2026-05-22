@@ -2046,7 +2046,7 @@ function selectCardInHand(index) {
 
     const card = gameState.player.hand[index];
     if (gameState.player.credits + gameState.player.battery < card.cost) {
-        showNotification("Not enough energy!", "error");
+        showNotification("Energia insuficiente!", "error");
         return;
     }
 
@@ -2062,7 +2062,7 @@ function selectCardInHand(index) {
             playCard(null); // Instacast
         } else {
             // Need targetting logic... For simplicity, if it's a spell, we'll click the target directly.
-            showNotification(`Select target for ${card.name}`, "info");
+            showNotification(`Selecione o alvo para ${card.name}`, "info");
             enableSpellTargeting(card);
         }
     }
