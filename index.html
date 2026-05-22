@@ -2,12 +2,22 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Emoji Arena</title>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Lilita+One&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+    <noscript>
+        <div id="noscript-warning">
+            <img src="assets/images/anti_cheat_warning.png" alt="Anti-Cheat Warning" style="max-width: 200px; margin-bottom: 20px;">
+            <h1 style="font-size: 3rem; -webkit-text-stroke: 2px #5a0b0b;">ERRO CRÍTICO</h1>
+            <p style="font-size: 1.5rem;">O Javascript está desativado. Habilite os scripts para jogar.</p>
+        </div>
+    </noscript>
+
 
     <div id="game-app">
         <!-- TOP HUD -->
