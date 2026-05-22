@@ -18,7 +18,7 @@
                     <div class="xp-bar-container"><div class="xp-bar-fill" id="menu-xp-fill"></div></div>
                 </div>
             </div>
-            
+
             <h1 class="game-title">Card Wars</h1>
             <div class="menu-buttons">
                 <button id="btn-play-modes" style="font-size:1.5rem; padding: 20px 40px; background: linear-gradient(to bottom, #e67e22, #d35400);">JOGAR</button>
@@ -28,9 +28,10 @@
                     <button id="btn-quests" style="width:48%">Quests</button>
                     <button id="btn-achievements" style="width:48%">Trophies</button>
                 </div>
+                <button id="btn-leaderboard" style="background: linear-gradient(to bottom, #d35400, #c0392b);">🏆 Hall da Fama</button>
                 <button id="btn-settings">Settings</button>
             </div>
-            
+
             <!-- Play Modes Modal -->
             <div id="play-modes-modal" class="overlay hidden">
                 <div class="modal-content large">
@@ -60,6 +61,12 @@
                             <p>Gratuito</p>
                             <button id="btn-play-casual" class="buy-btn">Treinar</button>
                         </div>
+                        <div class="play-mode-card" style="border-color: #8e44ad; box-shadow: 0 0 15px rgba(142,68,173,0.5);">
+                            <h3 style="color: #9b59b6;">Fenda da Eternidade</h3>
+                            <p>Sobrevivência Infinita. Seu Deck. Risco e Recompensa.</p>
+                            <p>Desafio Supremo</p>
+                            <button id="btn-play-endless" class="buy-btn" style="background: linear-gradient(to bottom, #9b59b6, #8e44ad);">Entrar na Fenda</button>
+                        </div>
                     </div>
                     <button id="btn-close-play-modes" class="danger-btn">Voltar</button>
                 </div>
@@ -81,17 +88,17 @@
                 <span class="stat">✨ <span id="shop-stardust">0</span></span>
                 <span class="stat">🎟️ <span id="shop-tickets">0</span></span>
             </div>
-            
+
             <div class="shop-tabs">
                 <button class="tab-btn active" data-target="tab-packs">Packages</button>
                 <button class="tab-btn" data-target="tab-daily">Daily Deals</button>
                 <button class="tab-btn" data-target="tab-cosmetics">Cosmetics</button>
             </div>
-            
+
             <div id="pity-timer-display" style="text-align: center; color: #f1c40f; font-weight: bold; margin-bottom: 10px;">
                 Sorte Acumulada: 0/10
             </div>
-            
+
             <div class="shop-content active" id="tab-packs">
                 <div class="shop-items-grid">
                     <div class="shop-item">
@@ -136,14 +143,14 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="shop-content" id="tab-daily">
                 <h3>Ofertas do Dia</h3>
                 <div class="shop-items-grid" id="daily-deals-container">
                     <!-- Daily deals injected via JS -->
                 </div>
             </div>
-            
+
             <div class="shop-content" id="tab-cosmetics">
                 <h3>Avatares</h3>
                 <div class="shop-items-grid" id="avatars-container">
@@ -188,11 +195,11 @@
                 <span id="draft-count">Cartas Selecionadas: 0/40</span>
                 <p class="instruction-text">Escolha 1 entre as 3 opções abaixo para adicionar ao seu Deck de Arena.</p>
             </div>
-            
+
             <div class="draft-choices-container" id="draft-choices">
                 <!-- 3 Random Cards Injected Here -->
             </div>
-            
+
             <div class="deck-area" style="margin-top:20px; height: 180px; overflow-x: auto; display: flex;">
                 <h3>Deck Atual</h3>
                 <div class="cards-grid compact" id="draft-deck-grid" style="display:flex; flex-direction: row; gap: 10px;">
@@ -204,6 +211,15 @@
 
         <!-- Battle Screen -->
         <div id="battle-screen" class="screen">
+            <!-- Endless Info -->
+            <div id="endless-info-bar" class="hidden" style="position: absolute; top: 10px; left: 10px; z-index: 100; background: rgba(0,0,0,0.8); border: 2px solid #8e44ad; padding: 10px; border-radius: 10px; text-align: center; color: white;">
+                <div style="font-size: 1.5rem; font-weight: bold; color: #9b59b6; text-shadow: 0 0 5px #8e44ad;">Onda <span id="endless-wave-display">1</span></div>
+                <div id="mutation-container" class="hidden" style="margin-top: 5px; color: #e74c3c; animation: pulse-red 2s infinite;">
+                    <span id="mutation-icon" style="font-size: 1.5rem;">☣️</span> <span id="mutation-name" style="font-weight: bold;">Mutação</span>
+                </div>
+                <div style="margin-top: 5px; font-size: 0.9rem; color: #f1c40f;">Saque: <span id="endless-loot-display">0</span> 💰</div>
+            </div>
+
             <!-- Top / Opponent -->
             <div class="player-area opponent-area">
                 <div class="hero-container">
@@ -244,7 +260,7 @@
                     <div class="slot opponent-slot" id="opp-slot-4"></div>
                     <div class="slot player-slot" id="player-slot-4"></div>
                 </div>
-                
+
                 <div class="turn-indicator" id="turn-indicator">Your Turn</div>
             </div>
 
@@ -264,7 +280,7 @@
                     <button id="btn-end-turn">End Turn</button>
                 </div>
             </div>
-            
+
             <!-- Mulligan Overlay -->
             <div id="mulligan-overlay" class="overlay hidden">
                 <h2 style="color:var(--accent-color);">Mulligan</h2>
@@ -273,13 +289,36 @@
                 <button id="btn-mulligan-ready" class="btn btn-primary">Estou Pronto!</button>
             </div>
 
+            <!-- Endless Decision Modal -->
+            <div id="endless-decision-modal" class="overlay hidden" style="backdrop-filter: blur(15px); z-index: 1001;">
+                <div class="modal-content large" style="background: #110515; border-color: #8e44ad; box-shadow: 0 0 40px #8e44ad;">
+                    <h2 style="color: #9b59b6; font-size: 3rem; text-shadow: 0 0 20px #8e44ad;">Chefe Derrotado!</h2>
+                    <p style="font-size: 1.2rem; color: #ecf0f1;">Você completou a Onda <span id="decision-wave">5</span>.</p>
+                    <p style="font-size: 1.5rem; color: #f1c40f; margin: 20px 0;">Saque Acumulado: <span id="decision-loot">0</span> 💰</p>
+
+                    <div style="display: flex; gap: 30px; width: 100%; justify-content: center; margin-top: 30px;">
+                        <div style="flex: 1; text-align: center; background: rgba(0,0,0,0.5); padding: 20px; border-radius: 10px; border: 2px solid #27ae60;">
+                            <h3 style="color: #2ecc71;">Fugir</h3>
+                            <p style="font-size: 0.9rem; margin-bottom: 20px;">Leve 100% do seu saque em segurança e registre seu recorde.</p>
+                            <button id="btn-endless-flee" class="buy-btn" style="background: #27ae60; border-color: #2ecc71; width: 100%; padding: 20px;">Correr (+<span id="btn-flee-loot">0</span> 💰)</button>
+                        </div>
+
+                        <div style="flex: 1; text-align: center; background: rgba(0,0,0,0.5); padding: 20px; border-radius: 10px; border: 2px solid #c0392b;">
+                            <h3 style="color: #e74c3c;">Avançar</h3>
+                            <p style="font-size: 0.9rem; margin-bottom: 20px;">Continue para a próxima onda. Se morrer, perde 70% do saque!</p>
+                            <button id="btn-endless-continue" class="danger-btn" style="width: 100%; padding: 20px;">Descer Mais Fundo ☠️</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Game Over Overlay -->
             <div id="game-over-overlay" class="overlay hidden">
                 <h2 id="game-over-title">Victory!</h2>
                 <p id="game-over-rewards">+50 💰</p>
                 <button id="btn-return-menu">Return to Menu</button>
             </div>
-            
+
             <!-- Pack Opening Overlay -->
             <div id="pack-opening-overlay" class="overlay hidden">
                 <h2>Pack Opened!</h2>
@@ -289,7 +328,7 @@
                 <button id="btn-close-pack">Close</button>
             </div>
         </div>
-        
+
         <!-- Daily Quests Overlay -->
         <div id="quests-overlay" class="overlay hidden">
             <div class="modal-content">
@@ -303,21 +342,33 @@
 
         <!-- Settings Overlay -->
         <div id="settings-overlay" class="overlay hidden">
-            <div class="modal-content">
-                <h2>Settings</h2>
-                <div class="settings-options">
-                    <label>
-                        <input type="checkbox" id="setting-music" checked> Music
-                    </label>
-                    <label>
-                        <input type="checkbox" id="setting-sfx" checked> Sound Effects
-                    </label>
-                    <button id="btn-reset-data" class="danger-btn">Reset Save Data</button>
+            <div class="modal-content" style="width: 400px;">
+                <h2>Configurações de Áudio</h2>
+                <div class="settings-options" style="width: 100%;">
+
+                    <div class="audio-slider-container">
+                        <label for="slider-master-vol">Volume Geral: <span id="val-master-vol">100%</span></label>
+                        <input type="range" id="slider-master-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <div class="audio-slider-container">
+                        <label for="slider-music-vol">Música (BGM): <span id="val-music-vol">100%</span></label>
+                        <input type="range" id="slider-music-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <div class="audio-slider-container">
+                        <label for="slider-sfx-vol">Efeitos (SFX): <span id="val-sfx-vol">100%</span></label>
+                        <input type="range" id="slider-sfx-vol" min="0" max="1" step="0.01" value="1" class="audio-slider">
+                    </div>
+
+                    <hr style="width: 100%; border-color: #555; margin: 15px 0;">
+
+                    <button id="btn-reset-data" class="danger-btn">Apagar Progresso (Reset)</button>
                 </div>
-                <button id="btn-close-settings">Close</button>
+                <button id="btn-close-settings">Voltar</button>
             </div>
         </div>
-        
+
         <!-- Achievements Overlay -->
         <div id="achievements-overlay" class="overlay hidden">
             <div class="modal-content large">
@@ -328,7 +379,7 @@
                 <button id="btn-close-achievements">Close</button>
             </div>
         </div>
-        
+
         <!-- Forge Modal -->
         <div id="forge-modal" class="overlay hidden">
             <div class="modal-content">
@@ -342,6 +393,104 @@
             </div>
         </div>
     </div>
+
+
+        <!-- Roguelike Map Screen -->
+        <div id="map-screen" class="screen" style="background-color: #0f0f1b; background-image: radial-gradient(circle at center, #1a0b2e 0%, #000 100%);">
+            <div style="display: flex; justify-content: space-between; width: 100%; padding: 0 50px;">
+                <h2 style="color: #e74c3c; text-shadow: 0 0 10px #c0392b;">A Torre do Caos</h2>
+                <div class="currency-display" style="position: static; margin: 10px 0;">
+                    <span class="stat">❤️ <span id="rogue-hp">50/50</span></span>
+                    <span class="stat">🪙 Ouro da Torre: <span id="rogue-gold">0</span></span>
+                </div>
+            </div>
+
+            <div id="map-container" style="flex-grow: 1; position: relative; width: 100%; height: 100%; overflow-y: auto; display: flex; flex-direction: column-reverse; align-items: center; padding: 50px 0;">
+                <!-- Map paths drawn via SVG -->
+                <svg id="map-svg-lines" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;"></svg>
+                <!-- Nodes container -->
+                <div id="map-nodes-container" style="position: relative; width: 80%; display: flex; flex-direction: column-reverse; gap: 80px; z-index: 2;">
+                    <!-- Nodes injected here -->
+                </div>
+            </div>
+
+            <button id="btn-abandon-run" class="btn-back">Abandonar Run</button>
+        </div>
+
+        <!-- Roguelike Draft Overlay -->
+        <div id="post-match-reward" class="overlay hidden" style="backdrop-filter: blur(10px);">
+            <h2 style="color: #f1c40f;">Recompensa de Combate</h2>
+            <p>Escolha UMA carta para adicionar ao seu deck da Torre:</p>
+            <div class="cards-grid compact" id="draft-reward-grid" style="display: flex; gap: 20px; justify-content: center; margin-top: 30px;">
+                <!-- 3 Cards -->
+            </div>
+            <button id="btn-skip-draft" class="danger-btn" style="margin-top: 30px;">Pular Recompensa</button>
+        </div>
+
+        <!-- Campfire Modal -->
+        <div id="campfire-modal" class="overlay hidden">
+            <div class="modal-content large" style="background: #1a0b0b; border-color: #e67e22;">
+                <h2 style="color: #e67e22;">Acampamento</h2>
+                <p>O calor do fogo conforta sua alma. Escolha uma ação:</p>
+                <div style="display: flex; gap: 30px; margin: 30px 0;">
+                    <button id="btn-camp-heal" class="buy-btn" style="background: #2ecc71; border-color: #27ae60; font-size: 1.5rem; padding: 30px;">❤️ Descansar<br><span style="font-size: 1rem;">(Cura 30% do HP Máx)</span></button>
+                    <button id="btn-camp-upgrade" class="buy-btn" style="background: #9b59b6; border-color: #8e44ad; font-size: 1.5rem; padding: 30px;">🔨 Forjar<br><span style="font-size: 1rem;">(Melhora 1 Carta)</span></button>
+                </div>
+                <div id="camp-upgrade-container" class="hidden" style="width: 100%; border-top: 1px solid #555; padding-top: 20px; margin-top: 20px;">
+                    <h3>Escolha a carta para melhorar (-1 Custo):</h3>
+                    <div class="cards-grid compact" id="camp-deck-grid" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tower Shop Modal -->
+        <div id="tower-shop-modal" class="overlay hidden">
+            <div class="modal-content large" style="background: #0f1c2e; border-color: #3498db;">
+                <h2 style="color: #3498db;">Mercador da Torre</h2>
+                <p>O que você tem para trocar, viajante?</p>
+                <p style="color: #f1c40f; font-weight: bold;">🪙 <span id="shop-rogue-gold">0</span></p>
+
+                <div style="display: flex; gap: 20px; width: 100%; margin-top: 20px;">
+                    <div style="flex: 2; border-right: 1px solid #34495e; padding-right: 20px;">
+                        <h3>Cartas à Venda</h3>
+                        <div class="cards-grid compact" id="tower-shop-cards" style="display: flex; gap: 10px; justify-content: center;"></div>
+                    </div>
+                    <div style="flex: 1; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: center;">
+                        <h3>Serviços</h3>
+                        <button id="btn-shop-remove" class="danger-btn" style="width: 100%;">🔥 Remover Carta (50 🪙)</button>
+                        <div id="shop-remove-container" class="hidden" style="width: 100%;">
+                            <p style="font-size: 0.8rem; text-align: center;">Clique em uma carta abaixo para destruir:</p>
+                            <div class="cards-grid compact" id="shop-deck-grid" style="max-height: 150px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+                <button id="btn-leave-tower-shop" class="btn-back" style="position: relative; margin-top: 30px;">Sair da Loja</button>
+            </div>
+        </div>
+
+        <!-- Event Modal -->
+        <div id="event-modal" class="overlay hidden">
+            <div class="modal-content" style="background: #1a0033; border-color: #9b59b6;">
+                <h2 id="event-title" style="color: #9b59b6;">Evento Misterioso</h2>
+                <p id="event-desc" style="font-size: 1.2rem; margin: 20px 0; text-align: center;"></p>
+                <div id="event-choices" style="display: flex; flex-direction: column; gap: 15px; width: 100%;">
+                    <!-- Buttons injected here -->
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Leaderboard Screen -->
+        <div id="leaderboard-screen" class="screen" style="background-color: #000; background-image: radial-gradient(circle, #2c3e50 0%, #000 80%);">
+            <h2 class="metallic-text" style="font-size: 4rem; margin-bottom: 5px;">Hall da Fama</h2>
+            <h3 style="color: #e67e22; margin-bottom: 40px; font-weight: normal;">Fenda da Eternidade - Top 5 Runs</h3>
+
+            <div id="leaderboard-container" style="width: 80%; max-width: 800px; display: flex; flex-direction: column; gap: 15px; margin: 0 auto; flex-grow: 1; overflow-y: auto; padding: 20px;">
+                <!-- Runs injected here -->
+            </div>
+
+            <button class="btn-back" style="position: static; margin: 30px auto 0 auto; width: 250px;">Back to Menu</button>
+        </div>
 
     <!-- Notification System -->
     <div id="notification-container"></div>
