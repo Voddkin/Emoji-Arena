@@ -1344,3 +1344,102 @@ button:active {
 @keyframes dash-flow {
     to { stroke-dashoffset: -1000; }
 }
+
+/* Endless Hall of Fame & Metallic Text */
+.metallic-text {
+    background: linear-gradient(to bottom, #f1c40f 0%, #f39c12 50%, #e67e22 51%, #d35400 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 5px 15px rgba(241, 196, 15, 0.4);
+    font-weight: 900;
+    letter-spacing: 2px;
+}
+
+.leaderboard-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0,0,0,0.6);
+    border: 2px solid #555;
+    border-radius: 10px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.leaderboard-entry::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; width: 5px; height: 100%;
+    background: #7f8c8d;
+}
+
+.leaderboard-entry.rank-1::before { background: #f1c40f; box-shadow: 0 0 15px #f1c40f; }
+.leaderboard-entry.rank-2::before { background: #bdc3c7; }
+.leaderboard-entry.rank-3::before { background: #cd7f32; }
+
+.leaderboard-entry.rank-1 {
+    border-color: #f1c40f;
+    background: linear-gradient(90deg, rgba(241,196,15,0.1), rgba(0,0,0,0.6));
+    transform: scale(1.02);
+}
+
+.lb-rank {
+    font-size: 2.5rem;
+    font-weight: bold;
+    width: 50px;
+    text-align: center;
+    color: #555;
+}
+.rank-1 .lb-rank { color: #f1c40f; text-shadow: 0 0 10px #f1c40f; }
+.rank-2 .lb-rank { color: #bdc3c7; }
+.rank-3 .lb-rank { color: #cd7f32; }
+
+.lb-details {
+    flex-grow: 1;
+    margin-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.lb-wave {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #ecf0f1;
+}
+
+.lb-stats {
+    font-size: 0.9rem;
+    color: #aaa;
+}
+
+.lb-loot {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #f1c40f;
+    text-shadow: 1px 1px 2px #000;
+}
+
+/* Mutation Tooltip/Hover */
+#mutation-container {
+    cursor: help;
+}
+#mutation-container:hover::after {
+    content: attr(data-desc);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.9);
+    border: 1px solid #e74c3c;
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    width: 250px;
+    font-size: 0.9rem;
+    font-weight: normal;
+    text-shadow: none;
+    pointer-events: none;
+    z-index: 1000;
+}

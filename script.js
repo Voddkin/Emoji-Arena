@@ -1081,6 +1081,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, { once: true });
 
+
+    document.getElementById('btn-leaderboard').addEventListener('click', () => {
+        renderLeaderboard();
+        showScreen(screens.LEADERBOARD);
+    });
+
+    document.getElementById('btn-play-endless').addEventListener('click', () => {
+        document.getElementById('play-modes-modal').classList.add('hidden');
+        if (playerProfile.endlessState) {
+            if (confirm("Continuar a Run salva na Onda " + playerProfile.endlessState.currentWave + "?")) {
+                currentMatchMode = 'endless';
+                startMatchmaking(true);
+            } else {
+                playerProfile.endlessState = null;
+                startEndlessMode();
+            }
+        } else {
+            startEndlessMode();
+        }
+    });
+
     document.getElementById('btn-settings').addEventListener('click', () => {
         document.getElementById('settings-overlay').classList.remove('hidden');
     });
@@ -1872,6 +1893,15 @@ function startTurn(side) {
     if (currentMatchMode === 'roguelike' && gameState.turn === 1 && side === 'player') RelicManager.triggerStartCombat();
     gameState[side].heroUsed = false;
 
+        // Mutations Turn Hook
+    if (currentMatchMode === 'endless' && side === 'player') {
+        triggerEndlessMutationEvent('turn');
+        if (playerProfile.endlessState.activeMutation && playerProfile.endlessState.activeMutation.id === 'toxic_spores') {
+            gameState.player.board.forEach(c => { if(c) c.hp -= 1; });
+            gameState.opponent.board.forEach(c => { if(c) c.hp -= 1; });
+            showNotification("Esporos Tóxicos causaram 1 de dano global!", "error");
+        }
+    }
     drawCard(side, 1);
 
     // Reset attack state and trigger start-of-turn auras/environments
@@ -2097,6 +2127,10 @@ function resolveSpell(side, card, targetIndex) {
         gameState[side].battery += card.effect.addBattery;
     }
     if (card.effect.damage) {
+        if (currentMatchMode === 'endless' && side === 'opponent' && playerProfile.endlessState.activeMutation && playerProfile.endlessState.activeMutation.id === 'vampirism') {
+            gameState.opponent.hp += card.effect.damage;
+            AudioManager.playSFX('hero_heal');
+        }
         // Simple random target for now if not specified
         const oppBoard = gameState[side === 'player' ? 'opponent' : 'player'].board;
         let validTargets = [];
@@ -2210,9 +2244,11 @@ function executeAttack(attackerIdx, defenderIdx) {
 
             // Check shield
             let pDmg = attackerCard.atk;
+            triggerEndlessMutationEvent('attack', attackerCard);
             if (currentMatchMode === 'roguelike') pDmg = RelicManager.checkAttackDamage(pDmg, defenderCard);
 
             let oDmg = defenderCard.atk;
+            triggerEndlessMutationEvent('attack', defenderCard);
 
             if (defenderCard.keywords && defenderCard.keywords.includes('escudo')) {
                 defenderCard.keywords = defenderCard.keywords.filter(k => k !== 'escudo');
@@ -2386,6 +2422,149 @@ function checkDeadCards() {
     });
 }
 
+
+
+
+function endGame(isWin) {
+    AudioManager.playBGM(isWin ? 'bgm_victory' : 'bgm_defeat');
+
+    // Clear the board visual state
+    const battleScreen = document.getElementById('battle-screen');
+    if (battleScreen) battleScreen.classList.add('hidden');
+
+    const resultsScreen = document.getElementById('game-over-overlay');
+    if (resultsScreen) {
+        resultsScreen.classList.remove('hidden');
+    }
+
+    const title = document.getElementById('game-over-title');
+    const rewards = document.getElementById('game-over-rewards');
+    const btnReturnMenu = document.getElementById('btn-return-menu');
+
+    if (isWin) {
+        if(title) { title.innerText = "VITÓRIA!"; title.style.color = "#FFD700"; }
+        if(rewards) rewards.innerText = "+25 XP | +10 Moedas";
+
+        addXP(25);
+        playerProfile.coins += 10;
+
+        // Battle Pass integration (Módulo 8.1)
+        if(typeof addCrowns === 'function') addCrowns(10);
+
+        if (currentMatchMode === 'ranked') {
+            playerProfile.elo += 25;
+            playerProfile.rankedWins++;
+        }
+
+    } else {
+        if(title) { title.innerText = "DERROTA"; title.style.color = "#FF4444"; }
+        if(rewards) rewards.innerText = "+5 XP | +2 Moedas";
+
+        addXP(5);
+        playerProfile.coins += 2;
+
+        // Battle Pass integration (Módulo 8.1)
+        if(typeof addCrowns === 'function') addCrowns(2);
+
+        if (currentMatchMode === 'ranked') {
+            playerProfile.elo = Math.max(0, playerProfile.elo - 15);
+            playerProfile.rankedLosses++;
+        }
+    }
+
+    // Endless Mode End Game Logic (Módulo 9.1)
+    if (currentMatchMode === 'endless') {
+        if (isWin) {
+            const s = playerProfile.endlessState;
+            if(!s) return;
+
+            // Recompensa Exponencial
+            let lootEarned = Math.floor(20 * Math.pow(1.15, s.currentWave));
+            s.loot += lootEarned;
+
+            // Heal 20% max HP
+            let healAmt = Math.floor(s.maxPlayerHp * 0.20);
+            s.playerHp = Math.min(s.maxPlayerHp, gameState.player.hp + healAmt);
+
+            if(rewards) rewards.innerText = `Onda ${s.currentWave} Concluída! (+${lootEarned} 💰 na sacola)`;
+
+            saveProfile();
+
+            if (btnReturnMenu) {
+                btnReturnMenu.innerText = "Continuar";
+                btnReturnMenu.onclick = () => {
+                    if(resultsScreen) resultsScreen.classList.add('hidden');
+                    if (s.currentWave % 5 === 0) {
+                        // Trigger Risk / Reward Modal
+                        openEndlessDecisionModal();
+                    } else {
+                        s.currentWave++;
+                        saveProfile();
+                        startMatchmaking(false); // Next wave
+                    }
+                };
+            }
+            return; // Skip standard return to menu
+
+        } else {
+            // Defeat in endless
+            const s = playerProfile.endlessState;
+            if(!s) return;
+            const keptLoot = Math.floor(s.loot * 0.3); // Perde 70%
+            playerProfile.coins += keptLoot;
+
+            showNotification(`Fim da Linha! Você sobreviveu até a Onda ${s.currentWave}. Você salvou ${keptLoot} Moedas.`, "error");
+
+            saveEndlessLeaderboard(s.currentWave, s.dominantTribe, keptLoot);
+
+            playerProfile.endlessState = null;
+            saveProfile();
+
+            if (btnReturnMenu) {
+                btnReturnMenu.innerText = "Voltar";
+                btnReturnMenu.onclick = () => {
+                    if(resultsScreen) resultsScreen.classList.add('hidden');
+                    showScreen(screens.LEADERBOARD);
+                };
+            }
+            return; // Skip standard return to menu
+        }
+    }
+
+    // Roguelike End Game Logic (Módulo 9)
+    if (currentMatchMode === 'roguelike') {
+        if (isWin) {
+            playerProfile.roguelikeState.currentNode.completed = true;
+            playerProfile.roguelikeState.coins += 15;
+            playerProfile.roguelikeState.playerHp = gameState.player.hp;
+            saveProfile();
+            if(rewards) rewards.innerText += " | +15 Ouro (Run)";
+        } else {
+            playerProfile.roguelikeState = null;
+            saveProfile();
+        }
+    }
+
+    saveProfile();
+    updateUIProfile();
+
+    // Default return to menu behavior
+    if (btnReturnMenu) {
+        btnReturnMenu.innerText = "Voltar ao Menu";
+        btnReturnMenu.onclick = () => {
+            if(resultsScreen) resultsScreen.classList.add('hidden');
+            if (currentMatchMode === 'roguelike' && isWin) {
+                renderMapScreen();
+            } else if (currentMatchMode === 'roguelike' && !isWin) {
+                showScreen(screens.MENU);
+            } else {
+                showScreen(screens.MENU);
+            }
+            AudioManager.playBGM('bgm_menu');
+        };
+    }
+}
+
 function checkWinCondition() {
     const pRatio = gameState.player.hp / gameState.player.maxHp;
     const oRatio = gameState.opponent.hp / gameState.opponent.maxHp;
@@ -2398,6 +2577,83 @@ function checkWinCondition() {
         endGame(true);
     } else if (gameState.player.hp <= 0) {
         endGame(false);
+    }
+}
+
+
+// --- MATCHMAKING & VS SCREEN ---
+function startMatchmaking(isBot = true) {
+    if (playerProfile.deck.length < 40 && currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike') {
+        showNotification("Seu deck precisa de 40 cartas!", "error");
+        return;
+    }
+
+    // Configura bot ou oponente fake
+    gameState.opponent.isBot = isBot;
+    gameState.opponent.botLevel = 'medium';
+
+    showScreen('battle-screen');
+    startBattle();
+}
+
+function startBattle() {
+    // Reset battle state
+    gameState.turn = 0;
+    gameState.player.hp = gameState.player.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? playerProfile.endlessState.playerHp : 30;
+    gameState.opponent.hp = gameState.opponent.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? 30 + (playerProfile.endlessState.currentWave * 5) : 30;
+
+    gameState.player.credits = 1;
+    gameState.player.maxCredits = 1;
+    gameState.opponent.credits = 1;
+    gameState.opponent.maxCredits = 1;
+
+    gameState.player.battery = 0;
+    gameState.opponent.battery = 0;
+
+    gameState.player.board = [null, null, null, null, null];
+    gameState.opponent.board = [null, null, null, null, null];
+
+    gameState.player.secrets = [];
+    gameState.opponent.secrets = [];
+
+    // Módulo 9.1 Mutations logic
+    if (currentMatchMode === 'endless' && playerProfile.endlessState && playerProfile.endlessState.activeMutation) {
+        const mut = playerProfile.endlessState.activeMutation;
+        if (mut.effect === 'all_poison') {
+            // Apply logic during summon
+        } else if (mut.effect === 'double_damage') {
+            // Handled in triggerDamageAnimation or executeAttack
+        } else if (mut.effect === 'no_heal') {
+            // Handled in heal functions
+        } else if (mut.effect === 'half_energy') {
+             gameState.player.maxCredits = Math.ceil(gameState.player.maxCredits / 2);
+        }
+    }
+
+    // Deck and Hand
+    gameState.player.deck = [...playerProfile.deck].sort(() => 0.5 - Math.random());
+    gameState.player.hand = [];
+
+    gameState.opponent.deck = [...playerProfile.deck].sort(() => 0.5 - Math.random()); // Fake deck for opponent
+    gameState.opponent.hand = [];
+
+    for(let i = 0; i < 5; i++) {
+        drawCard('player');
+        drawCard('opponent');
+    }
+
+    AudioManager.playBGM('bgm_battle_1');
+    updateBattleUI();
+
+    // Start game
+    gameState.isPlayerTurn = Math.random() > 0.5;
+    if (gameState.isPlayerTurn) {
+        startTurn('player');
+    } else {
+        startTurn('opponent');
+        if (gameState.opponent.isBot) {
+            botTurn();
+        }
     }
 }
 
@@ -2587,4 +2843,73 @@ function botTurn() {
         });
 
     }, 1500);
+}
+
+
+// --- ENDLESS MODALS & LEADERBOARD ---
+function openEndlessDecisionModal() {
+    const modal = document.getElementById('endless-decision-modal');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+
+    const s = playerProfile.endlessState;
+    if (!s) return;
+
+    document.getElementById('decision-wave').innerText = s.currentWave;
+    document.getElementById('decision-loot').innerText = s.loot;
+    document.getElementById('btn-flee-loot').innerText = s.loot;
+
+    document.getElementById('btn-endless-flee').onclick = () => {
+        AudioManager.playSFX('ui_buy');
+        playerProfile.coins += s.loot;
+        showNotification(`Você fugiu com o saque! +${s.loot} Moedas`, "success");
+
+        saveEndlessLeaderboard(s.currentWave, s.dominantTribe, s.loot);
+
+        playerProfile.endlessState = null;
+        saveProfile();
+
+        modal.classList.add('hidden');
+        showScreen(screens.LEADERBOARD);
+    };
+
+    document.getElementById('btn-endless-continue').onclick = () => {
+        AudioManager.playSFX('ui_click');
+        s.currentWave++;
+
+        // Sorteia nova mutação
+        if (typeof ENDLESS_MUTATIONS !== 'undefined' && ENDLESS_MUTATIONS.length > 0) {
+            s.activeMutation = ENDLESS_MUTATIONS[Math.floor(Math.random() * ENDLESS_MUTATIONS.length)];
+            showNotification(`MUTAÇÃO GLOBAL ATIVA: ${s.activeMutation.name}`, "error");
+        }
+
+        saveProfile();
+        modal.classList.add('hidden');
+
+        startMatchmaking(false);
+    };
+}
+
+
+
+// --- ENDLESS MODE INITIALIZATION ---
+function startEndlessMode() {
+    if (playerProfile.deck.length < 40) {
+        showNotification("Seu deck precisa de 40 cartas para jogar o Modo Infinito!", "error");
+        return;
+    }
+
+    playerProfile.endlessState = {
+        currentWave: 1,
+        loot: 0,
+        playerHp: 30, // Start with 30 HP
+        maxPlayerHp: 30,
+        dominantTribe: 'Neutro', // Can be updated during run
+        activeMutation: { name: "Nenhuma", effect: "Padrão" }
+    };
+
+    saveProfile();
+    currentMatchMode = 'endless';
+    startMatchmaking(true);
 }
