@@ -202,20 +202,15 @@ class AudioController {
             }
         };
 
-        // State
         this.currentBGM = null;
         this.bgmAudioObj = new Audio();
         this.bgmAudioObj.loop = true;
-
-        // Next BGM for crossfading
         this.nextBgmAudioObj = new Audio();
         this.nextBgmAudioObj.loop = true;
 
-        // SFX Object Pooling (5 instances per SFX to allow overlapping)
         this.sfxPool = {};
         this.poolSize = 5;
 
-        // Pre-initialize pools (we won't actually load the file until played, to save bandwidth if missing, but we setup the structure)
         for (const [key, url] of Object.entries(this.assets.sfx)) {
             this.sfxPool[key] = [];
             for (let i = 0; i < this.poolSize; i++) {
@@ -233,8 +228,6 @@ class AudioController {
             musicVolume: this.musicVolume,
             sfxVolume: this.sfxVolume
         }));
-
-        // Instantly update active BGM
         this.updateBGMVolume();
     }
 
@@ -243,7 +236,7 @@ class AudioController {
     }
 
     playBGM(trackId, crossfadeDuration = 1000) {
-        if (this.currentBGM === trackId) return; // Already playing
+        if (this.currentBGM === trackId) return;
 
         const url = this.assets.bgm[trackId];
         if (!url) return;
@@ -251,17 +244,15 @@ class AudioController {
         this.currentBGM = trackId;
 
         if (this.bgmAudioObj.paused || !this.bgmAudioObj.src) {
-            // Direct play if nothing was playing
             this.bgmAudioObj.src = url;
             this.updateBGMVolume();
-            this.bgmAudioObj.play().catch(e => console.log('BGM Play blocked by browser auto-play policy'));
+            this.bgmAudioObj.play().catch(e => console.log('BGM Play blocked'));
             return;
         }
 
-        // Crossfade Logic
         this.nextBgmAudioObj.src = url;
         this.nextBgmAudioObj.volume = 0;
-        this.nextBgmAudioObj.play().catch(e => console.log('BGM Play blocked by browser auto-play policy'));
+        this.nextBgmAudioObj.play().catch(e => console.log('BGM Play blocked'));
 
         const steps = 20;
         const stepTime = crossfadeDuration / steps;
@@ -279,40 +270,544 @@ class AudioController {
                 clearInterval(fadeInterval);
                 this.bgmAudioObj.pause();
 
-                // Swap objects
                 const temp = this.bgmAudioObj;
                 this.bgmAudioObj = this.nextBgmAudioObj;
                 this.nextBgmAudioObj = temp;
 
-                this.updateBGMVolume(); // Ensure target max volume
+                this.updateBGMVolume();
             }
         }, stepTime);
     }
 
     playSFX(sfxId) {
         const pool = this.sfxPool[sfxId];
-        if (!pool) {
-            console.warn(`SFX ${sfxId} not found in pool.`);
-            return;
-        }
+        if (!pool) return;
 
-        // Find an available (paused or ended) audio object in the pool
         let audioToPlay = pool.find(a => a.paused || a.ended || a.currentTime === 0);
 
-        // If all are playing, forcefully restart the oldest one (index 0) and rotate it to the end
         if (!audioToPlay) {
             audioToPlay = pool.shift();
             pool.push(audioToPlay);
         }
 
         audioToPlay.volume = this.masterVolume * this.sfxVolume;
-        audioToPlay.currentTime = 0; // Rewind
+        audioToPlay.currentTime = 0;
         audioToPlay.play().catch(e => console.log('SFX Play blocked'));
     }
 }
 
 const AudioManager = new AudioController();
 
+// --- RELIC MANAGER ---
+class RelicManager {
+    static relics = {
+        'coroa_morangos': { id: 'coroa_morangos', name: 'Coroa de Morangos', desc: 'Curar 2 HP ao jogar Comida.', icon: '🍓' },
+        'bateria_viciada': { id: 'bateria_viciada', name: 'Bateria Viciada', desc: '+3 Créditos no turno 1.', icon: '🔋' },
+        'luva_boxe': { id: 'luva_boxe', name: 'Luva de Boxe', desc: 'Dobra dano contra defensores.', icon: '🥊' },
+        'contrato_demon': { id: 'contrato_demon', name: 'Contrato Demoníaco', desc: 'Jogue 4 cartas no turno: tome 3 dano, compre 2 cartas.', icon: '📜' },
+        'escudo_vidro': { id: 'escudo_vidro', name: 'Escudo de Vidro', desc: 'Primeiro dano de cada combate é prevenido.', icon: '🛡️' }
+    };
+
+    static triggerPlayCard(card) {
+        if (!playerProfile.currentRunState) return;
+        const state = playerProfile.currentRunState;
+
+        // Coroa de Morangos
+        if (state.relics.includes('coroa_morangos') && card.tribes && card.tribes.includes(TRIBES.COMIDA)) {
+            gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + 2);
+            triggerHealAnimation('player', null, 2);
+            showNotification("Relíquia: Coroa de Morangos curou 2 HP!", "success");
+        }
+
+        // Contrato Demoníaco
+        if (state.relics.includes('contrato_demon') && !gameState.player.isProcessingRelic) {
+            gameState.player.cardsPlayedThisTurn = (gameState.player.cardsPlayedThisTurn || 0) + 1;
+            if (gameState.player.cardsPlayedThisTurn === 4) {
+                gameState.player.isProcessingRelic = true;
+                gameState.player.hp -= 3;
+                triggerDamageAnimation('opponent', null, 'player', null, 3);
+                drawCard('player', 2);
+                showNotification("Relíquia: Contrato Demoníaco cobrou o preço!", "error");
+                setTimeout(() => gameState.player.isProcessingRelic = false, 500);
+            }
+        }
+    }
+
+    static triggerStartCombat() {
+        if (!playerProfile.currentRunState) return;
+        const state = playerProfile.currentRunState;
+
+        gameState.player.glassShieldActive = state.relics.includes('escudo_vidro');
+
+        if (state.relics.includes('bateria_viciada')) {
+            gameState.player.credits += 3;
+            showNotification("Relíquia: Bateria Viciada deu +3 Créditos!", "info");
+        }
+    }
+
+    static checkDamage(amount, targetIsHero) {
+        if (!playerProfile.currentRunState || !targetIsHero) return amount;
+
+        if (gameState.player.glassShieldActive) {
+            gameState.player.glassShieldActive = false;
+            showNotification("Relíquia: Escudo de Vidro quebrou!", "info");
+            return 0;
+        }
+        return amount;
+    }
+
+    static checkAttackDamage(amount, defenderCard) {
+        if (!playerProfile.currentRunState || !defenderCard) return amount;
+
+        if (playerProfile.currentRunState.relics.includes('luva_boxe') && defenderCard.keywords && defenderCard.keywords.includes('defensor')) {
+            showNotification("Relíquia: Luva de Boxe ativada!", "info");
+            return amount * 2;
+        }
+        return amount;
+    }
+}
+
+// --- ROGUELIKE MAP GENERATION ---
+function startNewRoguelikeRun() {
+    // Generate basic deck
+    const basicDeck = ['c_01','c_01','c_02','c_02','c_04','c_05','c_05','c_09','c_10','c_16']; // 10 basic commons
+
+    // Create state
+    playerProfile.currentRunState = {
+        hp: 50,
+        maxHp: 50,
+        gold: 0,
+        deck: basicDeck,
+        relics: [],
+        map: generateRoguelikeDAG(),
+        currentNodeTier: 0,
+        currentNodeIndex: 0, // Starts at 0,0
+        seed: Date.now()
+    };
+    saveProfile();
+    renderMapScreen();
+    showScreen(screens.MAP);
+}
+
+function generateRoguelikeDAG() {
+    const map = [];
+    const tiers = 15;
+
+    for (let t = 0; t < tiers; t++) {
+        let nodesInTier = (t === 0 || t === tiers - 1) ? 1 : Math.floor(Math.random() * 2) + 3; // 1 node at start/end, 3-4 in between
+        let tierNodes = [];
+
+        for (let n = 0; n < nodesInTier; n++) {
+            let type = 'combat'; // Default
+
+            if (t === 0) type = 'combat'; // Node 1 is always combat
+            else if (t === tiers - 1) type = 'boss'; // Node 15 is always boss
+            else {
+                // Weights: Combat(45%), Elite(15%), Campfire(15%), Shop(10%), Event(15%)
+                let roll = Math.random();
+                if (roll < 0.45) type = 'combat';
+                else if (roll < 0.60) type = 'elite';
+                else if (roll < 0.75) type = 'campfire';
+                else if (roll < 0.85) type = 'shop';
+                else type = 'event';
+            }
+
+            tierNodes.push({
+                id: `t${t}_n${n}`,
+                type: type,
+                tier: t,
+                index: n,
+                connections: [] // Points to indexes in the NEXT tier
+            });
+        }
+        map.push(tierNodes);
+    }
+
+    // Connect nodes DAG logic
+    for (let t = 0; t < tiers - 1; t++) {
+        const currentTier = map[t];
+        const nextTier = map[t+1];
+
+        // Ensure every node in current tier connects to at least one in next tier
+        currentTier.forEach((node, i) => {
+            // Bias towards straight lines or adjacent
+            let targetIdx = Math.floor((i / currentTier.length) * nextTier.length);
+            node.connections.push(targetIdx);
+
+            // 30% chance for a branching path if there are other nodes
+            if (Math.random() < 0.3 && nextTier.length > 1) {
+                let extraIdx = (targetIdx + 1) % nextTier.length;
+                if (!node.connections.includes(extraIdx)) node.connections.push(extraIdx);
+            }
+        });
+
+        // Ensure every node in NEXT tier is reachable from at least one in CURRENT tier
+        nextTier.forEach((nNode, j) => {
+            let isConnected = currentTier.some(cNode => cNode.connections.includes(j));
+            if (!isConnected) {
+                let randomCurrent = Math.floor(Math.random() * currentTier.length);
+                if (!currentTier[randomCurrent].connections.includes(j)) {
+                    currentTier[randomCurrent].connections.push(j);
+                }
+            }
+        });
+    }
+
+    return map;
+}
+
+// --- MAP RENDERING ---
+function renderMapScreen() {
+    if (!playerProfile.currentRunState) return;
+    const state = playerProfile.currentRunState;
+    const map = state.map;
+
+    // Update Header
+    document.getElementById('rogue-hp').innerText = `${state.hp}/${state.maxHp}`;
+    document.getElementById('rogue-gold').innerText = state.gold;
+
+    const container = document.getElementById('map-nodes-container');
+    const svg = document.getElementById('map-svg-lines');
+    container.innerHTML = '';
+    svg.innerHTML = '';
+
+    // Calculate heights and layout
+    // We reverse the rendering so Tier 0 is at bottom
+
+    const tierDivs = [];
+
+    map.forEach((tier, tIdx) => {
+        const tierDiv = document.createElement('div');
+        tierDiv.className = 'map-tier';
+        tierDiv.dataset.tier = tIdx;
+
+        tier.forEach((node, nIdx) => {
+            const nodeDiv = document.createElement('div');
+            nodeDiv.className = 'map-node';
+            nodeDiv.id = node.id;
+
+            let icon = '⚔️';
+            if (node.type === 'elite') icon = '💀';
+            if (node.type === 'campfire') icon = '🔥';
+            if (node.type === 'shop') icon = '🛒';
+            if (node.type === 'event') icon = '❓';
+            if (node.type === 'boss') icon = '👹';
+
+            nodeDiv.innerHTML = `<span class="node-icon-${node.type}">${icon}</span>`;
+
+            // Check status
+            if (tIdx < state.currentNodeTier) {
+                nodeDiv.classList.add('completed');
+            } else if (tIdx === state.currentNodeTier) {
+                // If this is the node we are on OR we haven't started yet
+                if (tIdx === 0 && state.currentNodeTier === 0 && !gameState.inCombat) {
+                    nodeDiv.classList.add('active-choice');
+                    nodeDiv.onclick = () => selectNode(node);
+                } else if (nIdx === state.currentNodeIndex) {
+                    nodeDiv.innerHTML += `<div class="player-marker">🚶</div>`;
+                    nodeDiv.classList.add('completed');
+                }
+            } else if (tIdx === state.currentNodeTier + 1) {
+                // Next tier, check if connected
+                const currentNode = map[state.currentNodeTier][state.currentNodeIndex];
+                if (currentNode.connections.includes(nIdx)) {
+                    nodeDiv.classList.add('active-choice');
+                    nodeDiv.onclick = () => selectNode(node);
+                }
+            }
+
+            tierDiv.appendChild(nodeDiv);
+        });
+
+        tierDivs.push(tierDiv);
+    });
+
+    // Append in reverse order (boss at top, start at bottom)
+    for (let i = tierDivs.length - 1; i >= 0; i--) {
+        container.appendChild(tierDivs[i]);
+    }
+
+    // Draw SVG Lines (Need timeout to let DOM render for getBoundingClientRect)
+    setTimeout(() => {
+        const svgRect = svg.getBoundingClientRect();
+
+        for (let t = 0; t < map.length - 1; t++) {
+            const currentTier = map[t];
+            currentTier.forEach((node, i) => {
+                const startEl = document.getElementById(node.id);
+                if (!startEl) return;
+                const startRect = startEl.getBoundingClientRect();
+
+                // SVG coordinates relative to svg bounding box
+                const startX = startRect.left + (startRect.width / 2) - svgRect.left;
+                const startY = startRect.top + (startRect.height / 2) - svgRect.top;
+
+                node.connections.forEach(targetIdx => {
+                    const endEl = document.getElementById(`t${t+1}_n${targetIdx}`);
+                    if (!endEl) return;
+                    const endRect = endEl.getBoundingClientRect();
+
+                    const endX = endRect.left + (endRect.width / 2) - svgRect.left;
+                    const endY = endRect.top + (endRect.height / 2) - svgRect.top;
+
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', startX);
+                    line.setAttribute('y1', startY);
+                    line.setAttribute('x2', endX);
+                    line.setAttribute('y2', endY);
+                    line.setAttribute('class', 'map-path');
+
+                    if (t === state.currentNodeTier && i === state.currentNodeIndex) {
+                        line.classList.add('available'); // Glow valid paths
+                    }
+
+                    svg.appendChild(line);
+                });
+            });
+        }
+    }, 100);
+}
+
+function selectNode(node) {
+    AudioManager.playSFX('ui_click');
+    const state = playerProfile.currentRunState;
+
+    // Move player
+    state.currentNodeTier = node.tier;
+    state.currentNodeIndex = node.index;
+    saveProfile();
+
+    // Resolve Node
+    if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
+        currentMatchMode = 'roguelike';
+        startBattle(true, node);
+    } else if (node.type === 'campfire') {
+        openCampfire();
+    } else if (node.type === 'shop') {
+        openTowerShop();
+    } else if (node.type === 'event') {
+        openEvent();
+    }
+}
+
+// --- ROGUELIKE MODALS & EVENTS ---
+function openCampfire() {
+    const modal = document.getElementById('campfire-modal');
+    modal.classList.remove('hidden');
+
+    document.getElementById('btn-camp-heal').onclick = () => {
+        const state = playerProfile.currentRunState;
+        const healAmt = Math.floor(state.maxHp * 0.3);
+        state.hp = Math.min(state.maxHp, state.hp + healAmt);
+        saveProfile();
+        AudioManager.playSFX('hero_heal');
+        showNotification(`Descansado! Curou ${healAmt} HP.`, "success");
+        modal.classList.add('hidden');
+        renderMapScreen();
+    };
+
+    document.getElementById('btn-camp-upgrade').onclick = () => {
+        document.getElementById('camp-upgrade-container').classList.remove('hidden');
+        const grid = document.getElementById('camp-deck-grid');
+        grid.innerHTML = '';
+
+        playerProfile.currentRunState.deck.forEach((cardId, index) => {
+            const card = getCardById(cardId);
+            if (!card || card.cost === 0 || card.isUpgraded) return; // Can't upgrade 0 cost or already upgraded
+
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = createCardHTML(card);
+            const cardEl = wrapper.firstElementChild;
+            cardEl.onclick = () => {
+                // Upgrade Logic: We create a virtual upgraded card ID by appending '_up'
+                const upId = cardId + '_up';
+                // If it doesn't exist in DB, we inject it virtually
+                if (!getCardById(upId)) {
+                    let upCard = JSON.parse(JSON.stringify(card));
+                    upCard.id = upId;
+                    upCard.cost -= 1;
+                    upCard.name += '+';
+                    upCard.isUpgraded = true;
+                    CardDatabase.push(upCard);
+                }
+
+                playerProfile.currentRunState.deck[index] = upId;
+                saveProfile();
+                AudioManager.playSFX('ui_buy'); // anvil sound
+                showNotification(`Carta ${card.name} melhorada!`, "success");
+                modal.classList.add('hidden');
+                document.getElementById('camp-upgrade-container').classList.add('hidden');
+                renderMapScreen();
+            };
+            grid.appendChild(cardEl);
+        });
+    };
+}
+
+function openTowerShop() {
+    const modal = document.getElementById('tower-shop-modal');
+    modal.classList.remove('hidden');
+
+    const state = playerProfile.currentRunState;
+    document.getElementById('shop-rogue-gold').innerText = state.gold;
+
+    // Generate 3 random cards to buy
+    const grid = document.getElementById('tower-shop-cards');
+    grid.innerHTML = '';
+
+    for(let i=0; i<3; i++) {
+        let pool = CardDatabase.filter(c => c.rarity === 'common' || c.rarity === 'uncommon');
+        let card = pool[Math.floor(Math.random() * pool.length)];
+        let cost = card.rarity === 'common' ? 30 : 60;
+
+        const div = document.createElement('div');
+        div.innerHTML = `
+            ${createCardHTML(card)}
+            <button class="buy-btn" style="width: 100%; margin-top: 10px;">Comprar ${cost}🪙</button>
+        `;
+
+        const btn = div.querySelector('button');
+        btn.onclick = () => {
+            if (state.gold >= cost) {
+                state.gold -= cost;
+                state.deck.push(card.id);
+                document.getElementById('shop-rogue-gold').innerText = state.gold;
+                AudioManager.playSFX('ui_buy');
+                saveProfile();
+                btn.disabled = true;
+                btn.innerText = "Esgotado";
+            } else {
+                AudioManager.playSFX('ui_error');
+                showNotification("Ouro insuficiente!", "error");
+            }
+        };
+        grid.appendChild(div);
+    }
+
+    // Remove Card logic
+    document.getElementById('btn-shop-remove').onclick = () => {
+        if (state.gold >= 50) {
+            document.getElementById('shop-remove-container').classList.remove('hidden');
+            const remGrid = document.getElementById('shop-deck-grid');
+            remGrid.innerHTML = '';
+            state.deck.forEach((cardId, index) => {
+                const card = getCardById(cardId);
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = createCardHTML(card);
+                wrapper.firstElementChild.onclick = () => {
+                    state.gold -= 50;
+                    state.deck.splice(index, 1);
+                    document.getElementById('shop-rogue-gold').innerText = state.gold;
+                    AudioManager.playSFX('ui_error'); // Fire sound/burn
+                    showNotification(`Carta removida!`, "info");
+                    document.getElementById('shop-remove-container').classList.add('hidden');
+                    saveProfile();
+                };
+                remGrid.appendChild(wrapper.firstElementChild);
+            });
+        } else {
+            AudioManager.playSFX('ui_error');
+            showNotification("Ouro insuficiente!", "error");
+        }
+    };
+
+    document.getElementById('btn-leave-tower-shop').onclick = () => {
+        modal.classList.add('hidden');
+        renderMapScreen();
+    };
+}
+
+function openEvent() {
+    const modal = document.getElementById('event-modal');
+    const title = document.getElementById('event-title');
+    const desc = document.getElementById('event-desc');
+    const choices = document.getElementById('event-choices');
+
+    modal.classList.remove('hidden');
+    choices.innerHTML = '';
+
+    const events = [
+        {
+            title: "A Maçã Misteriosa",
+            desc: "Você encontra uma maçã brilhante mas cheirando mal em um pedestal.",
+            options: [
+                { text: "Comer (Curar 10 HP, Ganha Maldição)", action: () => {
+                    const state = playerProfile.currentRunState;
+                    state.hp = Math.min(state.maxHp, state.hp + 10);
+                    if (!getCardById('curse_01')) CardDatabase.push({id: 'curse_01', name: 'Maldição', type: CARD_TYPES.SPELL, cost: 2, desc: 'Não faz nada.', image: '☠️', target: 'none', effect: {}});
+                    state.deck.push('curse_01');
+                    AudioManager.playSFX('hero_heal');
+                    showNotification("Curou 10 HP, mas o deck pesou...", "info");
+                }},
+                { text: "Ignorar", action: () => { showNotification("Você seguiu em frente.", "info"); } }
+            ]
+        },
+        {
+            title: "O Altar do Sacrifício",
+            desc: "Um altar de sangue exige um tributo.",
+            options: [
+                { text: "Doar Sangue (-10 HP, +50 Ouro)", action: () => {
+                    const state = playerProfile.currentRunState;
+                    state.hp -= 10;
+                    state.gold += 50;
+                    AudioManager.playSFX('hero_damage');
+                    showNotification("Dói, mas você está mais rico.", "info");
+                }},
+                { text: "Ignorar", action: () => { showNotification("Melhor não arriscar.", "info"); } }
+            ]
+        }
+    ];
+
+    const ev = events[Math.floor(Math.random() * events.length)];
+    title.innerText = ev.title;
+    desc.innerText = ev.desc;
+
+    ev.options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.innerText = opt.text;
+        btn.onclick = () => {
+            opt.action();
+            saveProfile();
+            modal.classList.add('hidden');
+            renderMapScreen();
+        };
+        choices.appendChild(btn);
+    });
+}
+
+function openDraft() {
+    const overlay = document.getElementById('post-match-reward');
+    overlay.classList.remove('hidden');
+
+    const grid = document.getElementById('draft-reward-grid');
+    grid.innerHTML = '';
+
+    for (let i = 0; i < 3; i++) {
+        let pool = CardDatabase.filter(c => c.rarity !== 'mythic');
+        let card = pool[Math.floor(Math.random() * pool.length)];
+
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = createCardHTML(card);
+        wrapper.style.cursor = 'pointer';
+        wrapper.firstElementChild.onclick = () => {
+            playerProfile.currentRunState.deck.push(card.id);
+            saveProfile();
+            AudioManager.playSFX('card_draw');
+            showNotification(`Adicionado ao deck: ${card.name}`, "success");
+            overlay.classList.add('hidden');
+            renderMapScreen();
+            showScreen(screens.MAP);
+        };
+        grid.appendChild(wrapper.firstElementChild);
+    }
+
+    document.getElementById('btn-skip-draft').onclick = () => {
+        overlay.classList.add('hidden');
+        renderMapScreen();
+        showScreen(screens.MAP);
+    };
+}
 
 let playerProfile = {
     coins: 500,
@@ -512,13 +1007,22 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('achievements-overlay').classList.add('hidden');
     });
 
-    document.getElementById('btn-settings').addEventListener('click', () => {
-        document.getElementById('settings-overlay').classList.remove('hidden');
+
+    document.getElementById('btn-roguelike').addEventListener('click', () => {
+        if (!playerProfile.currentRunState) {
+            startNewRoguelikeRun();
+        } else {
+            renderMapScreen();
+            showScreen(screens.MAP);
+        }
     });
-    document.getElementById('btn-close-settings').addEventListener('click', () => {
-        document.getElementById('settings-overlay').classList.add('hidden');
+
+    document.getElementById('btn-abandon-run').addEventListener('click', () => {
+        playerProfile.currentRunState = null;
+        saveProfile();
+        AudioManager.playBGM('bgm_menu');
+        showScreen(screens.MENU);
     });
-    document.getElementById('btn-reset-data').addEventListener('click', resetSaveData);
 
     // Audio Settings Integration
     const sliderMaster = document.getElementById('slider-master-vol');
@@ -526,7 +1030,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const sliderSfx = document.getElementById('slider-sfx-vol');
 
     if (sliderMaster && sliderMusic && sliderSfx) {
-        // Load initial values to UI
         sliderMaster.value = AudioManager.masterVolume;
         sliderMusic.value = AudioManager.musicVolume;
         sliderSfx.value = AudioManager.sfxVolume;
@@ -566,21 +1069,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('click', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-            // Se for botão de compra, não tocar ui_click genérico aqui (vamos tocar no logic)
             if(!e.target.classList.contains('buy-btn')) {
                 AudioManager.playSFX('ui_click');
             }
         }
     });
 
-    // Play Menu Music on load
-    // Note: Most browsers block audio until first user interaction.
     document.addEventListener('click', () => {
         if (document.getElementById('main-menu').classList.contains('active')) {
             AudioManager.playBGM('bgm_menu');
         }
     }, { once: true });
 
+    document.getElementById('btn-settings').addEventListener('click', () => {
+        document.getElementById('settings-overlay').classList.remove('hidden');
+    });
+    document.getElementById('btn-close-settings').addEventListener('click', () => {
+        document.getElementById('settings-overlay').classList.add('hidden');
+    });
+    document.getElementById('btn-reset-data').addEventListener('click', resetSaveData);
 
     // Back Buttons
     document.querySelectorAll('.btn-back').forEach(btn => {
@@ -609,10 +1116,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveProfile();
                     if (type === 'tickets') {
                         playerProfile.tickets += 3;
-                        AudioManager.playSFX('ui_buy');
                         showNotification("Comprou 3 Fichas de Arena!", "success");
                     } else {
-                        AudioManager.playSFX('ui_buy');
                         openPack(type);
                     }
                 } else {
@@ -655,7 +1160,6 @@ document.addEventListener('DOMContentLoaded', () => {
             currentMatchMode = 'ranked';
             startBattle(true);
         } else {
-            AudioManager.playSFX('ui_error');
             showNotification("Sem Fichas de Arena! Compre na Loja.", "error");
         }
     });
@@ -717,6 +1221,9 @@ function createCardHTML(card, showBack = false) {
     let statsHTML = '';
     let costHTML = `<div class="card-cost">${card.cost}</div>`;
 
+    if (currentMatchMode === 'roguelike') RelicManager.triggerPlayCard(card);
+
+    AudioManager.playSFX('card_play');
     if (card.type === CARD_TYPES.TROOP) {
         const displayAtk = card.atk !== undefined ? card.atk : card.baseAtk;
         const displayHp = card.hp !== undefined ? card.hp : card.baseHp;
@@ -772,7 +1279,6 @@ function openPack(type) {
     const container = document.getElementById('opened-cards');
     container.innerHTML = '';
     document.getElementById('pack-opening-overlay').classList.remove('hidden');
-    AudioManager.playSFX('ui_chest_rumble');
 
     let cardsToDraw = 5;
     let guaranteedRarity = null;
@@ -837,7 +1343,6 @@ function openPack(type) {
                 this.className = `card card-reveal-anim`;
                 this.setAttribute('data-rarity', pulledCard.rarity);
                 this.innerHTML = createCardHTML(pulledCard, false).match(/<div class="card[^>]*>([\s\S]*?)<\/div>/)[1];
-                AudioManager.playSFX('ui_chest_burst');
 
                 // Add particles based on rarity
                 if (pulledCard.rarity === RARITIES.LEGENDARY || pulledCard.rarity === RARITIES.MYTHIC) {
@@ -932,7 +1437,6 @@ function renderDailyDeals() {
                 if (!playerProfile.collection[cId]) playerProfile.collection[cId] = 0;
                 playerProfile.collection[cId]++;
                 saveProfile();
-                AudioManager.playSFX('ui_buy');
                 showNotification(`Comprou ${getCardById(cId).name}!`, "success");
                 btn.disabled = true;
                 btn.innerText = "Comprado";
@@ -987,7 +1491,6 @@ function renderAvatars() {
                 playerProfile.activeAvatar = icon;
                 saveProfile();
                 renderAvatars();
-                AudioManager.playSFX('ui_buy');
                 showNotification("Avatar comprado e equipado!", "success");
             } else {
                 showNotification("Gemas insuficientes!", "error");
@@ -1366,6 +1869,7 @@ function startTurn(side) {
     const maxCred = Math.min(10, Math.ceil(gameState.turn / 2));
     gameState[side].maxCredits = maxCred;
     gameState[side].credits = maxCred;
+    if (currentMatchMode === 'roguelike' && gameState.turn === 1 && side === 'player') RelicManager.triggerStartCombat();
     gameState[side].heroUsed = false;
 
     drawCard(side, 1);
@@ -1486,7 +1990,6 @@ function selectCardInHand(index) {
 
     const card = gameState.player.hand[index];
     if (gameState.player.credits + gameState.player.battery < card.cost) {
-        AudioManager.playSFX('ui_error');
         showNotification("Not enough energy!", "error");
         return;
     }
@@ -1536,11 +2039,13 @@ function playCard(laneIndex, side = 'player') {
 
     gameState[side].hand.splice(handIndex, 1);
 
+    if (currentMatchMode === 'roguelike') RelicManager.triggerPlayCard(card);
+
+    AudioManager.playSFX('card_play');
     if (card.type === CARD_TYPES.TROOP) {
         if (side === 'player') matchStats.troopsPlayed++;
         card.exhausted = true; // Summoning sickness
         gameState[side].board[laneIndex] = card;
-        AudioManager.playSFX('card_play');
 
         // M6: Trigger Battlecry
         if (card.battlecry) triggerBattlecry(side, laneIndex, card.battlecry);
@@ -1548,7 +2053,6 @@ function playCard(laneIndex, side = 'player') {
     } else if (card.type === CARD_TYPES.ENVIRONMENT) {
         if (side === 'player') matchStats.envPlayed++;
         gameState.environments[laneIndex] = card;
-        AudioManager.playSFX('card_play');
 
     } else if (card.type === CARD_TYPES.SECRET) {
         gameState[side].secrets.push(card);
@@ -1569,6 +2073,11 @@ function playCard(laneIndex, side = 'player') {
 }
 
 function resolveSpell(side, card, targetIndex) {
+    if (currentMatchMode === 'roguelike' && side === 'player' && playerProfile.currentRunState && playerProfile.currentRunState.currentNodeTier === 29) {
+        showNotification("ANOMALIA: O Mestre do Clima ataca!", "error");
+        triggerDamageAnimation('opponent', null, 'player', null, 2);
+        gameState.player.hp -= 2;
+    }
     // Check for Counter-Spell Secret
     const oppSide = side === 'player' ? 'opponent' : 'player';
     const counterIdx = gameState[oppSide].secrets.findIndex(s => s.effect.cancelSpell);
@@ -1701,6 +2210,8 @@ function executeAttack(attackerIdx, defenderIdx) {
 
             // Check shield
             let pDmg = attackerCard.atk;
+            if (currentMatchMode === 'roguelike') pDmg = RelicManager.checkAttackDamage(pDmg, defenderCard);
+
             let oDmg = defenderCard.atk;
 
             if (defenderCard.keywords && defenderCard.keywords.includes('escudo')) {
@@ -1713,16 +2224,6 @@ function executeAttack(attackerIdx, defenderIdx) {
             }
 
             defenderCard.hp -= pDmg;
-            attackerCard.hp -= oDmg;
-
-            triggerDamageAnimation('player', attackerIdx, 'opponent', defenderIdx, pDmg);
-            if (oDmg > 0) triggerDamageAnimation('opponent', defenderIdx, 'player', attackerIdx, oDmg);
-
-            // Poison logic
-            if (attackerCard.keywords && attackerCard.keywords.includes('veneno') && pDmg > 0) defenderCard.hp = 0;
-            if (defenderCard.keywords && defenderCard.keywords.includes('veneno') && oDmg > 0) attackerCard.hp = 0;
-
-            // SFX Combat Hit & Tribe Synergy
             AudioManager.playSFX('combat_hit');
             if (attackerCard.tribes && attackerCard.tribes.length > 0) {
                 const mainTribe = attackerCard.tribes[0];
@@ -1732,6 +2233,14 @@ function executeAttack(attackerIdx, defenderIdx) {
                 else if (mainTribe === TRIBES.FERRAMENTA || mainTribe === TRIBES.VEICULO || mainTribe === TRIBES.TECNOLOGIA) AudioManager.playSFX('sfx_tribe_metal');
                 else if (mainTribe === TRIBES.COMIDA) AudioManager.playSFX('sfx_tribe_food');
             }
+            attackerCard.hp -= oDmg;
+
+            triggerDamageAnimation('player', attackerIdx, 'opponent', defenderIdx, pDmg);
+            if (oDmg > 0) triggerDamageAnimation('opponent', defenderIdx, 'player', attackerIdx, oDmg);
+
+            // Poison logic
+            if (attackerCard.keywords && attackerCard.keywords.includes('veneno') && pDmg > 0) defenderCard.hp = 0;
+            if (defenderCard.keywords && defenderCard.keywords.includes('veneno') && oDmg > 0) attackerCard.hp = 0;
 
             if (attackerCard.lifesteal) {
                 gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + attackerCard.lifesteal);
@@ -1804,10 +2313,11 @@ function triggerDamageAnimation(attackerSide, attackerIdx, defenderSide, defende
         targetEl = document.querySelector(defenderSide === 'opponent' ? '.bot-avatar' : '#battle-player-avatar');
     }
 
-    // SFX for hero damage
-    if (defenderIdx === null) {
-        AudioManager.playSFX('hero_damage');
+    if (currentMatchMode === 'roguelike' && defenderIdx === null && defenderSide === 'player') {
+        damageAmount = RelicManager.checkDamage(damageAmount, true);
+        if (damageAmount === 0) return;
     }
+    if (defenderIdx === null) AudioManager.playSFX('hero_damage');
 
     if (targetEl) {
         const rect = targetEl.getBoundingClientRect();
@@ -1835,10 +2345,11 @@ function triggerHealAnimation(side, index, amount) {
         document.getElementById(`${side === 'opponent' ? 'opp' : 'player'}-slot-${index}`) :
         document.querySelector(side === 'opponent' ? '.bot-avatar' : '#battle-player-avatar');
 
-    // SFX for hero damage
-    if (defenderIdx === null) {
-        AudioManager.playSFX('hero_damage');
+    if (currentMatchMode === 'roguelike' && defenderIdx === null && defenderSide === 'player') {
+        damageAmount = RelicManager.checkDamage(damageAmount, true);
+        if (damageAmount === 0) return;
     }
+    if (defenderIdx === null) AudioManager.playSFX('hero_damage');
 
     if (targetEl) {
         const rect = targetEl.getBoundingClientRect();
@@ -1876,13 +2387,11 @@ function checkDeadCards() {
 }
 
 function checkWinCondition() {
-    // Dynamic Tension Check
     const pRatio = gameState.player.hp / gameState.player.maxHp;
     const oRatio = gameState.opponent.hp / gameState.opponent.maxHp;
     if (pRatio <= 0.3 || oRatio <= 0.3) {
         AudioManager.playBGM('bgm_battle_tension');
     }
-
     if (gameState.player.hp <= 0 && gameState.opponent.hp <= 0) {
         endGame(false); // Tie goes to opponent for simplicity
     } else if (gameState.opponent.hp <= 0) {
