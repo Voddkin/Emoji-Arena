@@ -1,6 +1,44 @@
 (() => {
 'use strict';
 
+// --- SecOps: DOM Watchdog (Anti-Tampermonkey) ---
+const observer = new MutationObserver((mutations) => {
+    mutations.forEach(mutation => {
+        mutation.addedNodes.forEach(node => {
+            if (node.tagName && node.tagName.toLowerCase() === 'script') {
+                node.remove();
+                SaveManager.triggerBan();
+                location.reload();
+            }
+            if (node.tagName && node.tagName.toLowerCase() === 'div') {
+                const zIndex = parseInt(window.getComputedStyle(node).zIndex, 10);
+                const pos = window.getComputedStyle(node).position;
+                if ((zIndex >= 9000 || pos === 'fixed') && !node.classList.contains('overlay') && !node.classList.contains('notification')) {
+                    node.remove();
+                    SaveManager.triggerBan();
+                    location.reload();
+                }
+            }
+        });
+    });
+});
+observer.observe(document.documentElement, { childList: true, subtree: true });
+
+// Morte ao Eval
+window.eval = function() { throw new Error('Cheat Detected'); };
+const originalSetTimeout = window.setTimeout;
+window.setTimeout = function(func, delay) {
+    if (typeof func === 'string') throw new Error('Cheat Detected');
+    return originalSetTimeout(func, delay);
+};
+const originalSetInterval = window.setInterval;
+window.setInterval = function(func, delay) {
+    if (typeof func === 'string') throw new Error('Cheat Detected');
+    return originalSetInterval(func, delay);
+};
+// --- Fim SecOps Watchdog ---
+
+
 // --- SecOps: DevTools & Reverse Engineering Traps ---
 document.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -57,16 +95,17 @@ function verifyIntegrity(func, expectedLengthRange) {
     }
 }
 
+
 // We will run this periodically on critical functions
 setInterval(() => {
     try {
-        verifyIntegrity(addXP, [50, 400]);
-        verifyIntegrity(triggerDamageAnimation, [500, 3000]);
-        verifyIntegrity(openPack, [1000, 5000]);
+        verifyIntegrity(triggerDamageAnimation, [500, 4000]);
+        verifyIntegrity(SaveManager.encryptAndSave, [200, 1000]);
     } catch(e) {
         // App dies here
     }
 }, 5000);
+
 
 
 
@@ -881,7 +920,30 @@ function openDraft() {
     };
 }
 
-let playerProfile = {
+
+// --- SecOps: Memory Proxy Trap ---
+
+const profileHandler = {
+    set(target, property, value) {
+        if (['coins', 'gems', 'stardust'].includes(property)) {
+            const diff = value - (target[property] || 0);
+
+            // Endless mode is an exception to the anti-cheat rule because the player can legitimately dump thousands of coins at once.
+            const isEndlessFleeing = currentMatchMode === 'endless' && diff > 1000;
+
+            if (diff > 1000 && !isEndlessFleeing) {
+                console.log('Cheat engine success. 9999 coins added.'); // Fake log
+                if (typeof SaveManager !== 'undefined') SaveManager.triggerBan();
+                return false;
+            }
+        }
+        target[property] = value;
+        return true;
+    }
+};
+
+
+let rawPlayerProfile = {
     coins: 500,
     gems: 50,
     stardust: 0,
@@ -909,6 +971,8 @@ let playerProfile = {
     achievements: JSON.parse(JSON.stringify(ACHIEVEMENTS)),
     pityTimer: 0 // +1 for each pack. Resets on Legendary/Mythic.
 };
+let playerProfile = new Proxy(rawPlayerProfile, profileHandler);
+
 
 
 let currentMatchMode = 'casual'; // casual, ranked, roguelike, endless, draft
@@ -1174,6 +1238,7 @@ function showNotification(message, type = "info") {
 
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('game-app').style.display = 'flex';
     loadProfile();
     setupBottomNav();
     updateUIProfile();
