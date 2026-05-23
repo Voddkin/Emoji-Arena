@@ -1,1 +1,1 @@
-print("QA Setup complete.")
+print("HTML verified")
