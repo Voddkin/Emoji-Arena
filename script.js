@@ -509,7 +509,10 @@ class AudioController {
 
         audioToPlay.volume = this.masterVolume * this.sfxVolume;
         audioToPlay.currentTime = 0;
-        audioToPlay.play().catch(e => console.log('SFX Play blocked'));
+        const playPromise = audioToPlay.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(e => { /* Silently ignore 404s and DOMExceptions */ });
+        }
     }
 }
 
@@ -1316,8 +1319,7 @@ const addXP = withRateLimit('addXP', function(amount) {
 });
 
 function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(screenId).classList.add('active');
+    showScreenSPA(screenId);
 
     AudioManager.playBGM('bgm_menu');
     if (screenId === screens.COLLECTION) {
@@ -1328,6 +1330,7 @@ function showScreen(screenId) {
         renderAvatars();
     }
 }
+
 
 function showNotification(message, type = "info") {
     const container = document.getElementById('notification-container');
@@ -2231,8 +2234,14 @@ function useHeroPower() {
 
     gameState.player.heroUsed = true;
 
+
     if (p_hero.id === 'mago') {
-        // Target logic: let user pick any enemy (simplified to direct hero dmg if no target selector implemented, but let's just hit the enemy hero for flow)
+        // Apply visual damage correctly to the bot avatar
+        const botAvatar = document.querySelector('.bot-avatar');
+        if (botAvatar) {
+            botAvatar.classList.add('screen-shake');
+            setTimeout(() => botAvatar.classList.remove('screen-shake'), 400);
+        }
         triggerDamageAnimation('player', null, 'opponent', null, 2);
         showNotification("Poder do Mago: 2 de Dano ao Herói Inimigo!", "info");
         setTimeout(() => {
@@ -2240,6 +2249,7 @@ function useHeroPower() {
             checkWinCondition();
             updateBattleUI();
         }, 500);
+
     } else if (p_hero.id === 'cavaleiro') {
         gameState.player.maxHp += 2;
         gameState.player.hp += 2;
@@ -2768,20 +2778,12 @@ function triggerHealAnimation(side, index, amount) {
         document.getElementById(`${side === 'opponent' ? 'opp' : 'player'}-slot-${index}`) :
         document.querySelector(side === 'opponent' ? '.bot-avatar' : '#battle-player-avatar');
 
-    if (currentMatchMode === 'roguelike' && defenderIdx === null && defenderSide === 'player') {
-        damageAmount = RelicManager.checkDamage(damageAmount, true);
-        if (damageAmount === 0) return;
-    }
-    if (defenderIdx === null) AudioManager.playSFX('hero_damage');
-
     if (targetEl) {
-        const rect = targetEl.getBoundingClientRect();
-        healEl.style.left = (rect.left + rect.width/2 - 20) + 'px';
-        healEl.style.top = (rect.top + rect.height/2 - 20) + 'px';
-        gameContainer.appendChild(healEl);
-        setTimeout(() => healEl.remove(), 1200);
+        targetEl.appendChild(healEl);
+        setTimeout(() => healEl.remove(), 1000);
     }
 }
+
 
 function checkDeadCards() {
     ["player", "opponent"].forEach(side => {
@@ -2815,9 +2817,8 @@ function checkDeadCards() {
 function endGame(isWin) {
     AudioManager.playBGM(isWin ? 'bgm_victory' : 'bgm_defeat');
 
-    // Clear the board visual state
-    const battleScreen = document.getElementById('battle-screen');
-    if (battleScreen) battleScreen.classList.add('hidden');
+    // SPA Transition is handled via showScreenSPA
+    // Do NOT hide the battle screen manually here to avoid desync
 
     const resultsScreen = document.getElementById('game-over-overlay');
     if (resultsScreen) {
