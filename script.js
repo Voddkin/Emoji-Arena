@@ -955,7 +955,13 @@ function selectNode(node) {
     // Resolve Node
     if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
         currentMatchMode = 'roguelike';
-        startBattle(true, node);
+        // Define opponent logic for node inside Matchmaking or before
+        // Since original logic passed `node` to startBattle, but startBattle doesn't take parameters anymore in our refactor,
+        // we just configure it here or let startBattle fetch it from currentRunState
+        gameState.opponent.isBot = true;
+        gameState.opponent.botLevel = node.type === 'boss' ? 'expert' : (node.type === 'elite' ? 'hard' : 'normal');
+
+        startMatchmaking(true);
     } else if (node.type === 'campfire') {
         openCampfire();
     } else if (node.type === 'shop') {
@@ -1746,7 +1752,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-play-casual').addEventListener('click', () => {
         document.getElementById('play-modes-modal').classList.add('hidden');
         currentMatchMode = 'casual';
-        startBattle(true);
+        startMatchmaking(true);
     });
 
     // Battle actions
@@ -3157,18 +3163,21 @@ function endGame(isWin) {
     saveProfile();
     updateUIProfile();
 
+
     // Default return to menu behavior
     if (btnReturnMenu) {
         btnReturnMenu.innerText = "Voltar ao Menu";
         btnReturnMenu.onclick = () => {
             if(resultsScreen) resultsScreen.classList.add('hidden');
             if (currentMatchMode === 'roguelike' && isWin) {
-                renderMapScreen();
+                showScreenSPA('map-screen');
+                // renderMapScreen(); // assuming showScreenSPA handles it or needs manual call
             } else if (currentMatchMode === 'roguelike' && !isWin) {
-                showScreen(screens.MENU);
+                showScreenSPA('main-menu');
             } else {
-                showScreen(screens.MENU);
+                showScreenSPA('main-menu');
             }
+            updateUIProfile();
             AudioManager.playBGM('bgm_menu');
         };
     }
@@ -3244,10 +3253,13 @@ const LOADING_TIPS = [
 ];
 
 function startMatchmaking(isBot = true) {
-    if (playerProfile.deck.length < 40 && currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike') {
+    if (currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike' && playerProfile.deck.length < 40) {
         showNotification("Seu deck precisa de 40 cartas!", "error");
         return;
     }
+
+    // 1. Ensure all overlays are closed to prevent trapping
+    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
 
     // Simulate Loading Screen Immersion
     const tipEl = document.getElementById('matchmaking-tip');
@@ -3258,64 +3270,90 @@ function startMatchmaking(isBot = true) {
     // Configura bot ou oponente fake
     gameState.opponent.isBot = isBot;
     gameState.opponent.botLevel = 'medium';
+    if (currentMatchMode === 'endless') gameState.opponent.botLevel = 'expert';
 
     const overlay = document.getElementById('matchmaking-overlay');
     if (overlay) overlay.classList.remove('hidden');
 
     setTimeout(() => {
         if(overlay) overlay.classList.add('hidden');
-        showScreenSPA('battle-screen'); // Ensure it uses SPA logic
-        startBattle();
+        showScreenSPA('battle-screen'); // Force board to the front
+        startBattle(); // Fire the core mega function
     }, 2500); // 2.5s of artificial AAA tension loading
 }
 
 
 function startBattle() {
-    // Reset battle state
+    // Phase 1: DOM Cleanup
+    for (let i = 0; i < 5; i++) {
+        const pSlot = document.getElementById(`player-slot-${i}`);
+        const oSlot = document.getElementById(`opp-slot-${i}`);
+        if(pSlot) pSlot.innerHTML = '';
+        if(oSlot) oSlot.innerHTML = '';
+    }
+    const pHand = document.getElementById('player-hand');
+    const oHand = document.getElementById('opponent-hand');
+    if(pHand) pHand.innerHTML = '';
+    if(oHand) oHand.innerHTML = '';
+
+    // Phase 2: State Reset
     gameState.turn = 0;
-    gameState.player.hp = gameState.player.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? playerProfile.endlessState.playerHp : 30;
-    gameState.opponent.hp = gameState.opponent.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? 30 + (playerProfile.endlessState.currentWave * 5) : 30;
-
-    gameState.player.credits = 1;
-    gameState.player.maxCredits = 1;
-    gameState.opponent.credits = 1;
-    gameState.opponent.maxCredits = 1;
-
-    gameState.player.battery = 0;
-    gameState.opponent.battery = 0;
-
+    gameState.player.credits = 1; gameState.player.maxCredits = 1;
+    gameState.opponent.credits = 1; gameState.opponent.maxCredits = 1;
+    gameState.player.battery = 0; gameState.opponent.battery = 0;
     gameState.player.board = [null, null, null, null, null];
     gameState.opponent.board = [null, null, null, null, null];
+    gameState.player.secrets = []; gameState.opponent.secrets = [];
+    gameState.player.heroUsed = false; gameState.opponent.heroUsed = false;
 
-    gameState.player.secrets = [];
-    gameState.opponent.secrets = [];
+    // Phase 3: Mode Selection (Deck & HP)
+    let activeDeck = [];
+    let playerMaxHp = 30;
+    let oppMaxHp = 30;
 
-    // Módulo 9.1 Mutations logic
+    switch (currentMatchMode) {
+        case 'casual':
+        case 'ranked':
+            activeDeck = playerProfile.deck;
+            break;
+        case 'draft':
+            activeDeck = playerProfile.arenaState ? playerProfile.arenaState.deck : playerProfile.deck;
+            break;
+        case 'roguelike':
+            activeDeck = playerProfile.roguelikeState ? playerProfile.roguelikeState.deck : playerProfile.deck;
+            playerMaxHp = playerProfile.roguelikeState ? playerProfile.roguelikeState.playerHp : 30;
+            const boss = ADVENTURE_BOSSES[playerProfile.adventureProgress] || ADVENTURE_BOSSES[ADVENTURE_BOSSES.length - 1];
+            oppMaxHp = boss.hp || 50;
+            break;
+        case 'endless':
+            activeDeck = playerProfile.endlessState ? playerProfile.deck : playerProfile.deck; // endless uses standard deck or whatever is passed
+            playerMaxHp = playerProfile.endlessState ? playerProfile.endlessState.playerHp : 30;
+            oppMaxHp = playerProfile.endlessState ? 30 + (playerProfile.endlessState.currentWave * 5) : 30;
+            break;
+    }
+
+    gameState.player.maxHp = playerMaxHp;
+    gameState.player.hp = playerMaxHp;
+    gameState.opponent.maxHp = oppMaxHp;
+    gameState.opponent.hp = oppMaxHp;
+
+    // Apply Endless Mutation Energy Penalty
     if (currentMatchMode === 'endless' && playerProfile.endlessState && playerProfile.endlessState.activeMutation) {
-        const mut = playerProfile.endlessState.activeMutation;
-        if (mut.effect === 'all_poison') {
-            // Apply logic during summon
-        } else if (mut.effect === 'double_damage') {
-            // Handled in triggerDamageAnimation or executeAttack
-        } else if (mut.effect === 'no_heal') {
-            // Handled in heal functions
-        } else if (mut.effect === 'half_energy') {
+        if (playerProfile.endlessState.activeMutation.effect === 'half_energy') {
              gameState.player.maxCredits = Math.ceil(gameState.player.maxCredits / 2);
         }
     }
 
-// Deck and Hand
-    let activeDeck = playerProfile.deck;
-    if (currentMatchMode === 'draft' && playerProfile.arenaState) activeDeck = playerProfile.arenaState.deck;
-
+    // Phase 4: Shuffle Clone
     gameState.player.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.player.hand = [];
 
-    // Fake deck for opponent (could simulate a boss or a similar draft deck)
+    // Fake deck for opponent
     gameState.opponent.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.opponent.hand = [];
 
-    for(let i = 0; i < 5; i++) {
+    // Phase 5: Initial Draw & Mulligan Trigger
+    for(let i = 0; i < 4; i++) {
         drawCard('player');
         drawCard('opponent');
     }
@@ -3323,18 +3361,17 @@ function startBattle() {
     AudioManager.playBGM('bgm_battle_1');
     updateBattleUI();
 
-    // Start game
-    gameState.isPlayerTurn = Math.random() > 0.5;
-    if (gameState.isPlayerTurn) {
-        startTurn('player');
+    // Open Mulligan Overlay
+    const mulliganEl = document.getElementById('mulligan-overlay');
+    if (mulliganEl) {
+        mulliganEl.classList.remove('hidden');
+        renderMulliganCards();
     } else {
-        startTurn('opponent');
-        if (gameState.opponent.isBot) {
-            botTurn();
-        }
+        // Fallback if no mulligan UI
+        gameState.isPlayerTurn = Math.random() > 0.5;
+        startTurn(gameState.isPlayerTurn ? 'player' : 'opponent');
     }
 }
-
 // --- HEURISTIC AI & BOT EMOTES ---
 function triggerBotEmote(type) {
     const emoteEl = document.getElementById('bot-emote');
