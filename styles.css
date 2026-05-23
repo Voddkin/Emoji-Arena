@@ -1,4 +1,44 @@
 
+/* Z-Index Absolute Hierarchy */
+.bg-particles { z-index: 0; }
+.screen { z-index: 10; }
+#bottom-nav { z-index: 100; }
+.overlay { z-index: 1000; }
+.notification, #notification-container { z-index: 9999; }
+
+/* SPA Transition Logic */
+.screen {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    background-image: radial-gradient(circle at center, rgba(22,33,62,0.8) 0%, rgba(26,26,46,0.95) 100%);
+
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s, visibility 0s 0.4s;
+}
+
+.screen.active {
+    visibility: visible;
+    pointer-events: auto;
+    z-index: 10;
+    opacity: 1;
+    transform: translateX(0);
+    transition-delay: 0s;
+}
+
+.screen.slide-left {
+    transform: translateX(-100%);
+    opacity: 0;
+}
+
+
 /* MODULE 10: LOBBY VIVO & GAME FEEL AAA */
 :root {
     --bg-color: #1a0b2e;
@@ -138,26 +178,9 @@ body {
 }
 
 /* Smooth Slide Transitions */
-.screen {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s;
-    transform: translateX(100%);
-    opacity: 0;
-    display: flex;
-    flex-direction: column;
-    pointer-events: none;
-}
-.screen.active {
-    transform: translateX(0);
-    opacity: 1;
-    pointer-events: auto;
-}
-.screen.slide-left {
-    transform: translateX(-100%);
-    opacity: 0;
-}
+
+
+
 
 /* --- LOBBY VIVO --- */
 .lobby-screen {
@@ -448,21 +471,9 @@ body {
     40%, 60% { transform: translate3d(8px, -4px, 0); }
 }
 
-.screen {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: none;
-    flex-direction: column;
-    padding: 20px;
-    background-image: radial-gradient(circle at center, rgba(22,33,62,0.8) 0%, rgba(26,26,46,0.95) 100%);
-}
 
-.screen.active {
-    display: flex;
-}
+
+
 
 h1, h2, h3 {
     text-align: center;
@@ -2003,4 +2014,12 @@ button:active {
     color: #3498db;
     font-style: normal;
     font-weight: bold;
+}
+
+
+/* Modal Scroll Fix */
+#play-modes-modal .modal-content {
+    max-height: 80vh;
+    overflow-y: auto;
+    padding-bottom: 20px;
 }

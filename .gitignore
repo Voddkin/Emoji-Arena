@@ -1,0 +1,4 @@
+*.pyc
+__pycache__/
+*.py
+verify_ui.py
