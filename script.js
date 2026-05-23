@@ -1,6 +1,45 @@
 (() => {
 'use strict';
 
+
+/*
+=============================================================================
+🛠️ ZONA DO DESENVOLVEDOR - BANCO DE DADOS DE ATUALIZAÇÕES (PATCH NOTES) 🛠️
+=============================================================================
+COMO ADICIONAR UM NOVO PATCH:
+1. Copie o bloco de um objeto existente (com { id, version, date, title... }).
+2. Cole no topo deste array (para ficar em primeiro na lista).
+3. Mude o 'id' para um valor único, ex: 'patch_1_1'.
+4. Escreva o conteúdo livremente usando tags HTML como <strong>, <ul> e <li>.
+=============================================================================
+*/
+const GAME_PATCH_NOTES = [
+    {
+        id: 'patch_1_0_0',
+        version: 'v1.0.0',
+        date: '22 Mai 2026',
+        title: 'O Despertar da Arena',
+        subtitle: 'Lançamento Oficial e Novas Mecânicas!',
+        content: `
+            Bem-vindos ao lançamento oficial do <strong>Emoji Arena</strong>! Foram meses de balanceamento e desenvolvimento intenso.
+            <br><br>
+            <strong>Novidades Principais:</strong>
+            <ul>
+                <li>O Modo <em>Fenda da Eternidade</em> foi adicionado. Tente sobreviver o máximo que puder para recompensas exponenciais!</li>
+                <li>Mutações Pós-Combate (Roguelike): Agora os inimigos recebem buffs passivos a cada 5 ondas.</li>
+                <li>O novo sistema de <em>SecOps</em> bane trapaceiros e criptografa seu save.</li>
+            </ul>
+            <br>
+            <strong>Balanceamento:</strong>
+            <ul>
+                <li>[Dragão Ancião]: Custo reduzido de 10 para 9.</li>
+                <li>[Lorde Vampiro]: Roubo de vida ajustado para equilibrar as partidas.</li>
+            </ul>
+        `
+    }
+];
+
+
 // --- SecOps: DOM Watchdog (Anti-Tampermonkey) ---
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(mutation => {
@@ -37,6 +76,73 @@ window.setInterval = function(func, delay) {
     return originalSetInterval(func, delay);
 };
 // --- Fim SecOps Watchdog ---
+
+// --- MODULE 14: NEWS HUB LOGIC ---
+function initializeNewsHub() {
+    if (!GAME_PATCH_NOTES || GAME_PATCH_NOTES.length === 0) return;
+
+    const lastRead = localStorage.getItem('Emoji_Arena_LastReadPatch');
+    const latestPatch = GAME_PATCH_NOTES[0];
+    const dot = document.getElementById('news-notification-dot');
+
+    if (lastRead !== latestPatch.id && dot) {
+        dot.classList.remove('hidden');
+    }
+
+    const btnHub = document.getElementById('btn-news-hub');
+    if (btnHub) {
+        btnHub.addEventListener('click', () => {
+            if (dot) dot.classList.add('hidden');
+            localStorage.setItem('Emoji_Arena_LastReadPatch', latestPatch.id);
+            openNewsHub();
+        });
+    }
+
+    const btnClose = document.getElementById('btn-close-news');
+    if (btnClose) {
+        btnClose.addEventListener('click', () => {
+            document.getElementById('news-hub-modal').classList.add('hidden');
+        });
+    }
+}
+
+function openNewsHub() {
+    const modal = document.getElementById('news-hub-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+
+    const timeline = document.getElementById('news-timeline');
+    timeline.innerHTML = '';
+
+    GAME_PATCH_NOTES.forEach((patch, index) => {
+        const btn = document.createElement('button');
+        btn.className = `news-timeline-item ${index === 0 ? 'active' : ''}`;
+
+        let newTag = index === 0 ? '<span class="tag-new">NOVO</span>' : '';
+        btn.innerHTML = `<span>${patch.version}</span> ${newTag}`;
+
+        btn.onclick = () => {
+            document.querySelectorAll('.news-timeline-item').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderPatchDetails(patch);
+        };
+
+        timeline.appendChild(btn);
+    });
+
+    if (GAME_PATCH_NOTES.length > 0) {
+        renderPatchDetails(GAME_PATCH_NOTES[0]);
+    }
+}
+
+function renderPatchDetails(patch) {
+    document.getElementById('patch-title').innerText = patch.title;
+    document.getElementById('patch-version').innerText = patch.version;
+    document.getElementById('patch-date').innerText = patch.date;
+    document.getElementById('patch-subtitle').innerText = patch.subtitle;
+    document.getElementById('patch-content').innerHTML = patch.content;
+}
+
 
 
 // --- SecOps: DevTools & Reverse Engineering Traps ---
@@ -1240,8 +1346,11 @@ function showNotification(message, type = "info") {
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('game-app').style.display = 'flex';
     loadProfile();
+
     setupBottomNav();
+    initializeNewsHub();
     updateUIProfile();
+
     setTimeout(() => {
         showNotification("Bem-vindo ao Emoji Arena!", "success");
     }, 1000);
