@@ -77,6 +77,171 @@ window.setInterval = function(func, delay) {
 };
 // --- Fim SecOps Watchdog ---
 
+
+// --- MODULE 9.2: ARENA DRAFT ENGINE ---
+function generateDraftPool() {
+    const pool = [];
+    const dist = {
+        [RARITIES.COMMON]: 45,
+        [RARITIES.UNCOMMON]: 20,
+        [RARITIES.RARE]: 10,
+        [RARITIES.EPIC]: 4,
+        [RARITIES.LEGENDARY]: 1
+    };
+
+    Object.keys(dist).forEach(rarity => {
+        const availableCards = CardDatabase.filter(c => c.rarity === rarity && c.type !== CARD_TYPES.ENVIRONMENT); // Exclude envs to be safe, or include. Let's include everything.
+        const allRarityCards = CardDatabase.filter(c => c.rarity === rarity);
+
+        for (let i = 0; i < dist[rarity]; i++) {
+            if (allRarityCards.length > 0) {
+                const randomCard = allRarityCards[Math.floor(Math.random() * allRarityCards.length)];
+                pool.push(randomCard.id);
+            }
+        }
+    });
+
+    // Shuffle pool
+    return pool.sort(() => 0.5 - Math.random());
+}
+
+
+function renderDraftChoices() {
+    const s = playerProfile.arenaState;
+    if (!s) return;
+
+    const countEl = document.getElementById('draft-count');
+    const choicesContainer = document.getElementById('draft-choices');
+    const deckGrid = document.getElementById('draft-deck-grid');
+
+    if (countEl) countEl.innerText = `Cartas Selecionadas: ${s.deck.length}/40 (Vitórias: ${s.wins}/12 | Derrotas: ${s.losses}/3)`;
+
+    // Render Deck
+    if (deckGrid) {
+        deckGrid.innerHTML = '';
+        s.deck.forEach(cId => {
+            const wrap = document.createElement('div');
+            wrap.innerHTML = createCardHTML(getCardById(cId));
+            deckGrid.appendChild(wrap.firstElementChild);
+        });
+    }
+
+    if (s.deck.length >= 40) {
+        choicesContainer.innerHTML = `
+            <div style="text-align: center; width: 100%;">
+                <h3 style="color: #2ecc71;">Deck Concluído!</h3>
+                <p>Você está pronto para enfrentar a Arena.</p>
+                <button id="btn-start-arena-battle" class="buy-btn" style="padding: 20px 40px; font-size: 1.5rem; margin-top: 20px;">BATALHAR ⚔️</button>
+            </div>
+        `;
+        document.getElementById('btn-start-arena-battle').addEventListener('click', () => {
+            startMatchmaking(true);
+        });
+        return;
+    }
+
+    // Pick 3 from pool if not currently choosing
+    if (!s.currentChoices || s.currentChoices.length === 0) {
+        s.currentChoices = s.pool.splice(0, 3);
+        saveProfile();
+    }
+
+    // Render choices
+    choicesContainer.innerHTML = '';
+    s.currentChoices.forEach(cId => {
+        const cardObj = getCardById(cId);
+        const cardWrap = document.createElement('div');
+        cardWrap.innerHTML = createCardHTML(cardObj);
+        const cardEl = cardWrap.firstElementChild;
+        cardEl.style.cursor = 'pointer';
+        cardEl.style.transform = 'scale(1.2)';
+        cardEl.style.margin = '20px';
+
+        cardEl.addEventListener('click', () => {
+            AudioManager.playSFX('ui_click');
+            // Add selected to deck
+            s.deck.push(cId);
+            // Put the other 2 back into the pool
+            const otherCards = s.currentChoices.filter(id => id !== cId);
+            s.pool.push(...otherCards);
+            // Shuffle pool again just in case
+            s.pool.sort(() => 0.5 - Math.random());
+
+            s.currentChoices = [];
+            saveProfile();
+            renderDraftChoices();
+        });
+
+        choicesContainer.appendChild(cardEl);
+    });
+}
+
+
+function claimArenaVault(wins) {
+    // Escala de recompensas garantida
+    const goldReward = wins * 50 + 50; // Mínimo 50, Máximo 650
+    const stardustReward = wins * 20; // Mínimo 0, Máximo 240
+    let packsToGive = 0;
+
+    if (wins >= 3) packsToGive = 1;
+    if (wins >= 7) packsToGive = 2;
+    if (wins === 12) packsToGive = 3;
+
+    playerProfile.coins += goldReward;
+    playerProfile.stardust += stardustReward;
+
+    // Simplificando packs dando gold extra pra comprar, ou podemos dar as cartas direto.
+    // Vamos dar ouro equivalente ao pacote básico (100) pra cada pack ganho.
+    playerProfile.coins += (packsToGive * 100);
+
+    let msg = `O Cofre da Arena foi aberto! (${wins} Vitórias)\n`;
+    msg += `+${goldReward + (packsToGive * 100)} Moedas `;
+    if (stardustReward > 0) msg += `| +${stardustReward} Pó Estelar `;
+    if (packsToGive > 0) msg += `(Inclui Bônus de Pacotes)`;
+
+    showNotification(msg, "success");
+
+    // Try to trigger achievement if 12 wins
+    if (wins === 12) {
+        const ach = playerProfile.achievements.find(a => a.id === 'a5');
+        if (ach && !ach.completed) {
+            ach.progress = 1;
+            ach.completed = true;
+            playerProfile.unlockedAvatars.push(ach.reward.value);
+            showNotification(`Troféu Conquistado: ${ach.desc}!`, "success");
+        }
+    }
+
+    playerProfile.arenaState = null;
+    saveProfile();
+    showScreenSPA('main-menu');
+}
+
+function startArenaDraft() {
+    if (playerProfile.coins < 150 && !playerProfile.arenaState) {
+        showNotification("Moedas insuficientes para entrar na Arena (Custo: 150 💰)", "error");
+        return;
+    }
+
+    // Only charge if starting a fresh run
+    if (!playerProfile.arenaState) {
+        playerProfile.coins -= 150;
+        playerProfile.arenaState = {
+            pool: generateDraftPool(),
+            deck: [],
+            wins: 0,
+            losses: 0,
+            currentChoices: []
+        };
+        saveProfile();
+        showNotification("Bem-vindo à Arena! Custo: 150 💰", "success");
+    }
+
+    currentMatchMode = 'draft';
+    showScreenSPA('draft-screen');
+    renderDraftChoices();
+}
+
 // --- MODULE 14: NEWS HUB LOGIC ---
 function initializeNewsHub() {
     if (!GAME_PATCH_NOTES || GAME_PATCH_NOTES.length === 0) return;
@@ -1360,6 +1525,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Main Menu Buttons
+
+    const btnDraft = document.getElementById('btn-play-draft');
+    if (btnDraft) {
+        btnDraft.addEventListener('click', () => {
+            const modal = document.getElementById('play-modes-modal');
+            if (modal) modal.classList.add('hidden');
+            startArenaDraft();
+        });
+    }
+
+    const btnAbandonDraft = document.getElementById('btn-abandon-draft');
+    if(btnAbandonDraft) {
+        btnAbandonDraft.addEventListener('click', () => {
+            if(confirm('Tem certeza que deseja abandonar sua corrida atual na Arena?')) {
+                playerProfile.arenaState = null;
+                saveProfile();
+                showScreenSPA('main-menu');
+            }
+        });
+    }
+
     document.getElementById('btn-play-modes').addEventListener('click', () => {
         document.getElementById('play-modes-modal').classList.remove('hidden');
     });
@@ -2867,6 +3053,41 @@ function endGame(isWin) {
         }
     }
 
+
+    // Draft Arena End Game Logic (Módulo 9.2)
+    if (currentMatchMode === 'draft') {
+        const s = playerProfile.arenaState;
+        if (s) {
+            if (isWin) s.wins++;
+            else s.losses++;
+
+            saveProfile();
+
+            if (s.wins >= 12 || s.losses >= 3) {
+                if (rewards) rewards.innerText = `Fim da Arena! Vitórias: ${s.wins}`;
+                if (btnReturnMenu) {
+                    btnReturnMenu.innerText = "Resgatar Recompensas";
+                    btnReturnMenu.onclick = () => {
+                        if(resultsScreen) resultsScreen.classList.add('hidden');
+                        claimArenaVault(s.wins);
+                    };
+                }
+                return; // Stop default menu routing
+            } else {
+                if (rewards) rewards.innerText = `Vitórias: ${s.wins}/12 | Derrotas: ${s.losses}/3`;
+                if (btnReturnMenu) {
+                    btnReturnMenu.innerText = "Continuar Arena";
+                    btnReturnMenu.onclick = () => {
+                        if(resultsScreen) resultsScreen.classList.add('hidden');
+                        showScreenSPA('draft-screen');
+                        renderDraftChoices(); // Update UI counters
+                    };
+                }
+                return;
+            }
+        }
+    }
+
     // Endless Mode End Game Logic (Módulo 9.1)
     if (currentMatchMode === 'endless') {
         if (isWin) {
@@ -3090,11 +3311,15 @@ function startBattle() {
         }
     }
 
-    // Deck and Hand
-    gameState.player.deck = [...playerProfile.deck].sort(() => 0.5 - Math.random());
+// Deck and Hand
+    let activeDeck = playerProfile.deck;
+    if (currentMatchMode === 'draft' && playerProfile.arenaState) activeDeck = playerProfile.arenaState.deck;
+
+    gameState.player.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.player.hand = [];
 
-    gameState.opponent.deck = [...playerProfile.deck].sort(() => 0.5 - Math.random()); // Fake deck for opponent
+    // Fake deck for opponent (could simulate a boss or a similar draft deck)
+    gameState.opponent.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.opponent.hand = [];
 
     for(let i = 0; i < 5; i++) {
