@@ -44,19 +44,9 @@ const GAME_PATCH_NOTES = [
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(mutation => {
         mutation.addedNodes.forEach(node => {
-            if (node.tagName && node.tagName.toLowerCase() === 'script') {
+            if (node.tagName && (node.tagName.toLowerCase() === 'script' || node.tagName.toLowerCase() === 'iframe')) {
                 node.remove();
-                SaveManager.triggerBan();
-                location.reload();
-            }
-            if (node.tagName && node.tagName.toLowerCase() === 'div') {
-                const zIndex = parseInt(window.getComputedStyle(node).zIndex, 10);
-                const pos = window.getComputedStyle(node).position;
-                if ((zIndex >= 9000 || pos === 'fixed') && !node.classList.contains('overlay') && !node.classList.contains('notification')) {
-                    node.remove();
-                    SaveManager.triggerBan();
-                    location.reload();
-                }
+                console.warn('Injeção bloqueada');
             }
         });
     });
@@ -1736,22 +1726,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Play Modes Actions
     document.getElementById('btn-play-adventure').addEventListener('click', () => {
+        document.getElementById('play-modes-modal').classList.add('hidden');
         currentMatchMode = 'adventure';
         startBattle(true);
     });
 
     document.getElementById('btn-play-ranked').addEventListener('click', () => {
         if (playerProfile.tickets > 0) {
+            document.getElementById('play-modes-modal').classList.add('hidden');
             playerProfile.tickets--;
             saveProfile();
             currentMatchMode = 'ranked';
-            startBattle(true);
+            startMatchmaking(true);
         } else {
             showNotification("Sem Fichas de Arena! Compre na Loja.", "error");
         }
     });
 
     document.getElementById('btn-play-casual').addEventListener('click', () => {
+        document.getElementById('play-modes-modal').classList.add('hidden');
         currentMatchMode = 'casual';
         startBattle(true);
     });
@@ -3650,98 +3643,16 @@ function showScreenSPA(screenId) {
         if (screen.id === screenId) {
             screen.classList.add('active');
             screen.classList.remove('slide-left');
+            screen.style.pointerEvents = 'auto'; // Immediate interaction
         } else {
             if (screen.classList.contains('active')) {
+                screen.style.pointerEvents = 'none'; // Instantly kill ghost clicks
+                screen.classList.remove('active');
                 screen.classList.add('slide-left');
-                setTimeout(() => {
-                    screen.classList.remove('active');
-                    screen.classList.remove('slide-left');
-                }, 400); // Matches CSS transition time
+                // We no longer need setTimeout to remove .active, CSS visibility transition-delay handles visual sync!
             }
         }
     });
-}
-
-function updateHUD() {
-    document.getElementById('hud-level-val').innerText = playerProfile.stats.level || 1;
-
-    // Update XP Bar (Requires a small calc if we use the old logic)
-    const xpNeeded = (playerProfile.stats.level || 1) * 100;
-    const progress = Math.min(100, ((playerProfile.stats.xp || 0) / xpNeeded) * 100);
-    document.getElementById('hud-xp-fill').style.width = `${progress}%`;
-
-    document.getElementById('hud-coins').innerText = playerProfile.coins;
-    document.getElementById('hud-gems').innerText = playerProfile.gems;
-    document.getElementById('hud-dust').innerText = playerProfile.stardust;
-
-    // Also update giant avatar
-    document.getElementById('lobby-avatar').innerText = playerProfile.activeAvatar || '🧙‍♂️';
-
-    // Render Peeking Cards
-    const peekingContainer = document.getElementById('lobby-peeking-cards');
-    if (peekingContainer && playerProfile.deck && playerProfile.deck.length >= 3) {
-        // Shuffle a bit or take top 3
-        const deckSample = playerProfile.deck.slice(0, 3);
-        peekingContainer.innerHTML = '';
-        deckSample.forEach((cardId, i) => {
-            const cardData = getCardById(cardId);
-            const cardEl = document.createElement('div');
-            cardEl.className = `peek-card card-${i+1}`;
-            if (cardData) {
-                // Apply a visual style matching the card
-                let tIcon = '❓';
-                if(cardData.tribes && cardData.tribes.length > 0) {
-                    const mainTribe = cardData.tribes[0];
-                    if(mainTribe === TRIBES.NATUREZA) tIcon = '🍃';
-                    if(mainTribe === TRIBES.URBANO) tIcon = '🏙️';
-                    if(mainTribe === TRIBES.ANIMAL) tIcon = '🐾';
-                    if(mainTribe === TRIBES.AQUATICO) tIcon = '💧';
-                    if(mainTribe === TRIBES.MAGICO) tIcon = '✨';
-                    if(mainTribe === TRIBES.FERRAMENTA) tIcon = '🛠️';
-                    if(mainTribe === TRIBES.COMIDA) tIcon = '🍔';
-                    if(mainTribe === TRIBES.VEICULO) tIcon = '🚗';
-                    if(mainTribe === TRIBES.PROFISSAO) tIcon = '💼';
-                    if(mainTribe === TRIBES.TERRENO) tIcon = '🌍';
-                    if(mainTribe === TRIBES.MISTICO) tIcon = '🔮';
-                    if(mainTribe === TRIBES.TECNOLOGIA) tIcon = '⚙️';
-                }
-                cardEl.innerHTML = `<div style="text-align:center; font-size:1.5rem; margin-top:20px;">${tIcon}</div>`;
-                cardEl.style.background = `linear-gradient(135deg, ${cardData.color || '#34495e'}, #2c3e50)`;
-            }
-            peekingContainer.appendChild(cardEl);
-        });
-    }
-
-}
-
-function renderChestSlots() {
-    // Assuming playerProfile.chests = [{id: 'silver', unlockTime: null}, null, null, null]
-    if (!playerProfile.chests) {
-        playerProfile.chests = [null, null, null, null];
-    }
-
-    for(let i = 0; i < 4; i++) {
-        const slotEl = document.getElementById(`chest-slot-${i}`);
-        if(!slotEl) continue;
-
-        const chest = playerProfile.chests[i];
-        if (chest) {
-            slotEl.classList.add('filled');
-            slotEl.innerHTML = `📦<div class="chest-timer">Abrir</div>`;
-            slotEl.onclick = () => {
-                // Dummy open logic for now
-                playerProfile.chests[i] = null;
-                playerProfile.coins += 50;
-                saveProfile();
-                showNotification("Baú Aberto! +50 🪙", "success");
-                renderChestSlots();
-            };
-        } else {
-            slotEl.classList.remove('filled');
-            slotEl.innerHTML = `Vazio`;
-            slotEl.onclick = null;
-        }
-    }
 }
 
 })();
