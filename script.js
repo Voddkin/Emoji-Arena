@@ -44,9 +44,19 @@ const GAME_PATCH_NOTES = [
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(mutation => {
         mutation.addedNodes.forEach(node => {
-            if (node.tagName && (node.tagName.toLowerCase() === 'script' || node.tagName.toLowerCase() === 'iframe')) {
+            if (node.tagName && node.tagName.toLowerCase() === 'script') {
                 node.remove();
-                console.warn('Injeção bloqueada');
+                SaveManager.triggerBan();
+                location.reload();
+            }
+            if (node.tagName && node.tagName.toLowerCase() === 'div') {
+                const zIndex = parseInt(window.getComputedStyle(node).zIndex, 10);
+                const pos = window.getComputedStyle(node).position;
+                if ((zIndex >= 9000 || pos === 'fixed') && !node.classList.contains('overlay') && !node.classList.contains('notification')) {
+                    node.remove();
+                    SaveManager.triggerBan();
+                    location.reload();
+                }
             }
         });
     });
@@ -955,13 +965,7 @@ function selectNode(node) {
     // Resolve Node
     if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
         currentMatchMode = 'roguelike';
-        // Define opponent logic for node inside Matchmaking or before
-        // Since original logic passed `node` to startBattle, but startBattle doesn't take parameters anymore in our refactor,
-        // we just configure it here or let startBattle fetch it from currentRunState
-        gameState.opponent.isBot = true;
-        gameState.opponent.botLevel = node.type === 'boss' ? 'expert' : (node.type === 'elite' ? 'hard' : 'normal');
-
-        startMatchmaking(true);
+        startBattle(true, node);
     } else if (node.type === 'campfire') {
         openCampfire();
     } else if (node.type === 'shop') {
@@ -1732,27 +1736,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Play Modes Actions
     document.getElementById('btn-play-adventure').addEventListener('click', () => {
-        document.getElementById('play-modes-modal').classList.add('hidden');
         currentMatchMode = 'adventure';
         startBattle(true);
     });
 
     document.getElementById('btn-play-ranked').addEventListener('click', () => {
         if (playerProfile.tickets > 0) {
-            document.getElementById('play-modes-modal').classList.add('hidden');
             playerProfile.tickets--;
             saveProfile();
             currentMatchMode = 'ranked';
-            startMatchmaking(true);
+            startBattle(true);
         } else {
             showNotification("Sem Fichas de Arena! Compre na Loja.", "error");
         }
     });
 
     document.getElementById('btn-play-casual').addEventListener('click', () => {
-        document.getElementById('play-modes-modal').classList.add('hidden');
         currentMatchMode = 'casual';
-        startMatchmaking(true);
+        startBattle(true);
     });
 
     // Battle actions
@@ -3163,21 +3164,18 @@ function endGame(isWin) {
     saveProfile();
     updateUIProfile();
 
-
     // Default return to menu behavior
     if (btnReturnMenu) {
         btnReturnMenu.innerText = "Voltar ao Menu";
         btnReturnMenu.onclick = () => {
             if(resultsScreen) resultsScreen.classList.add('hidden');
             if (currentMatchMode === 'roguelike' && isWin) {
-                showScreenSPA('map-screen');
-                // renderMapScreen(); // assuming showScreenSPA handles it or needs manual call
+                renderMapScreen();
             } else if (currentMatchMode === 'roguelike' && !isWin) {
-                showScreenSPA('main-menu');
+                showScreen(screens.MENU);
             } else {
-                showScreenSPA('main-menu');
+                showScreen(screens.MENU);
             }
-            updateUIProfile();
             AudioManager.playBGM('bgm_menu');
         };
     }
@@ -3253,13 +3251,10 @@ const LOADING_TIPS = [
 ];
 
 function startMatchmaking(isBot = true) {
-    if (currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike' && playerProfile.deck.length < 40) {
+    if (playerProfile.deck.length < 40 && currentMatchMode !== 'draft' && currentMatchMode !== 'roguelike') {
         showNotification("Seu deck precisa de 40 cartas!", "error");
         return;
     }
-
-    // 1. Ensure all overlays are closed to prevent trapping
-    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
 
     // Simulate Loading Screen Immersion
     const tipEl = document.getElementById('matchmaking-tip');
@@ -3270,90 +3265,64 @@ function startMatchmaking(isBot = true) {
     // Configura bot ou oponente fake
     gameState.opponent.isBot = isBot;
     gameState.opponent.botLevel = 'medium';
-    if (currentMatchMode === 'endless') gameState.opponent.botLevel = 'expert';
 
     const overlay = document.getElementById('matchmaking-overlay');
     if (overlay) overlay.classList.remove('hidden');
 
     setTimeout(() => {
         if(overlay) overlay.classList.add('hidden');
-        showScreenSPA('battle-screen'); // Force board to the front
-        startBattle(); // Fire the core mega function
+        showScreenSPA('battle-screen'); // Ensure it uses SPA logic
+        startBattle();
     }, 2500); // 2.5s of artificial AAA tension loading
 }
 
 
 function startBattle() {
-    // Phase 1: DOM Cleanup
-    for (let i = 0; i < 5; i++) {
-        const pSlot = document.getElementById(`player-slot-${i}`);
-        const oSlot = document.getElementById(`opp-slot-${i}`);
-        if(pSlot) pSlot.innerHTML = '';
-        if(oSlot) oSlot.innerHTML = '';
-    }
-    const pHand = document.getElementById('player-hand');
-    const oHand = document.getElementById('opponent-hand');
-    if(pHand) pHand.innerHTML = '';
-    if(oHand) oHand.innerHTML = '';
-
-    // Phase 2: State Reset
+    // Reset battle state
     gameState.turn = 0;
-    gameState.player.credits = 1; gameState.player.maxCredits = 1;
-    gameState.opponent.credits = 1; gameState.opponent.maxCredits = 1;
-    gameState.player.battery = 0; gameState.opponent.battery = 0;
+    gameState.player.hp = gameState.player.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? playerProfile.endlessState.playerHp : 30;
+    gameState.opponent.hp = gameState.opponent.maxHp = (currentMatchMode === 'endless' && playerProfile.endlessState) ? 30 + (playerProfile.endlessState.currentWave * 5) : 30;
+
+    gameState.player.credits = 1;
+    gameState.player.maxCredits = 1;
+    gameState.opponent.credits = 1;
+    gameState.opponent.maxCredits = 1;
+
+    gameState.player.battery = 0;
+    gameState.opponent.battery = 0;
+
     gameState.player.board = [null, null, null, null, null];
     gameState.opponent.board = [null, null, null, null, null];
-    gameState.player.secrets = []; gameState.opponent.secrets = [];
-    gameState.player.heroUsed = false; gameState.opponent.heroUsed = false;
 
-    // Phase 3: Mode Selection (Deck & HP)
-    let activeDeck = [];
-    let playerMaxHp = 30;
-    let oppMaxHp = 30;
+    gameState.player.secrets = [];
+    gameState.opponent.secrets = [];
 
-    switch (currentMatchMode) {
-        case 'casual':
-        case 'ranked':
-            activeDeck = playerProfile.deck;
-            break;
-        case 'draft':
-            activeDeck = playerProfile.arenaState ? playerProfile.arenaState.deck : playerProfile.deck;
-            break;
-        case 'roguelike':
-            activeDeck = playerProfile.roguelikeState ? playerProfile.roguelikeState.deck : playerProfile.deck;
-            playerMaxHp = playerProfile.roguelikeState ? playerProfile.roguelikeState.playerHp : 30;
-            const boss = ADVENTURE_BOSSES[playerProfile.adventureProgress] || ADVENTURE_BOSSES[ADVENTURE_BOSSES.length - 1];
-            oppMaxHp = boss.hp || 50;
-            break;
-        case 'endless':
-            activeDeck = playerProfile.endlessState ? playerProfile.deck : playerProfile.deck; // endless uses standard deck or whatever is passed
-            playerMaxHp = playerProfile.endlessState ? playerProfile.endlessState.playerHp : 30;
-            oppMaxHp = playerProfile.endlessState ? 30 + (playerProfile.endlessState.currentWave * 5) : 30;
-            break;
-    }
-
-    gameState.player.maxHp = playerMaxHp;
-    gameState.player.hp = playerMaxHp;
-    gameState.opponent.maxHp = oppMaxHp;
-    gameState.opponent.hp = oppMaxHp;
-
-    // Apply Endless Mutation Energy Penalty
+    // Módulo 9.1 Mutations logic
     if (currentMatchMode === 'endless' && playerProfile.endlessState && playerProfile.endlessState.activeMutation) {
-        if (playerProfile.endlessState.activeMutation.effect === 'half_energy') {
+        const mut = playerProfile.endlessState.activeMutation;
+        if (mut.effect === 'all_poison') {
+            // Apply logic during summon
+        } else if (mut.effect === 'double_damage') {
+            // Handled in triggerDamageAnimation or executeAttack
+        } else if (mut.effect === 'no_heal') {
+            // Handled in heal functions
+        } else if (mut.effect === 'half_energy') {
              gameState.player.maxCredits = Math.ceil(gameState.player.maxCredits / 2);
         }
     }
 
-    // Phase 4: Shuffle Clone
+// Deck and Hand
+    let activeDeck = playerProfile.deck;
+    if (currentMatchMode === 'draft' && playerProfile.arenaState) activeDeck = playerProfile.arenaState.deck;
+
     gameState.player.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.player.hand = [];
 
-    // Fake deck for opponent
+    // Fake deck for opponent (could simulate a boss or a similar draft deck)
     gameState.opponent.deck = [...activeDeck].sort(() => 0.5 - Math.random());
     gameState.opponent.hand = [];
 
-    // Phase 5: Initial Draw & Mulligan Trigger
-    for(let i = 0; i < 4; i++) {
+    for(let i = 0; i < 5; i++) {
         drawCard('player');
         drawCard('opponent');
     }
@@ -3361,17 +3330,18 @@ function startBattle() {
     AudioManager.playBGM('bgm_battle_1');
     updateBattleUI();
 
-    // Open Mulligan Overlay
-    const mulliganEl = document.getElementById('mulligan-overlay');
-    if (mulliganEl) {
-        mulliganEl.classList.remove('hidden');
-        renderMulliganCards();
+    // Start game
+    gameState.isPlayerTurn = Math.random() > 0.5;
+    if (gameState.isPlayerTurn) {
+        startTurn('player');
     } else {
-        // Fallback if no mulligan UI
-        gameState.isPlayerTurn = Math.random() > 0.5;
-        startTurn(gameState.isPlayerTurn ? 'player' : 'opponent');
+        startTurn('opponent');
+        if (gameState.opponent.isBot) {
+            botTurn();
+        }
     }
 }
+
 // --- HEURISTIC AI & BOT EMOTES ---
 function triggerBotEmote(type) {
     const emoteEl = document.getElementById('bot-emote');
@@ -3680,16 +3650,98 @@ function showScreenSPA(screenId) {
         if (screen.id === screenId) {
             screen.classList.add('active');
             screen.classList.remove('slide-left');
-            screen.style.pointerEvents = 'auto'; // Immediate interaction
         } else {
             if (screen.classList.contains('active')) {
-                screen.style.pointerEvents = 'none'; // Instantly kill ghost clicks
-                screen.classList.remove('active');
                 screen.classList.add('slide-left');
-                // We no longer need setTimeout to remove .active, CSS visibility transition-delay handles visual sync!
+                setTimeout(() => {
+                    screen.classList.remove('active');
+                    screen.classList.remove('slide-left');
+                }, 400); // Matches CSS transition time
             }
         }
     });
+}
+
+function updateHUD() {
+    document.getElementById('hud-level-val').innerText = playerProfile.stats.level || 1;
+
+    // Update XP Bar (Requires a small calc if we use the old logic)
+    const xpNeeded = (playerProfile.stats.level || 1) * 100;
+    const progress = Math.min(100, ((playerProfile.stats.xp || 0) / xpNeeded) * 100);
+    document.getElementById('hud-xp-fill').style.width = `${progress}%`;
+
+    document.getElementById('hud-coins').innerText = playerProfile.coins;
+    document.getElementById('hud-gems').innerText = playerProfile.gems;
+    document.getElementById('hud-dust').innerText = playerProfile.stardust;
+
+    // Also update giant avatar
+    document.getElementById('lobby-avatar').innerText = playerProfile.activeAvatar || '🧙‍♂️';
+
+    // Render Peeking Cards
+    const peekingContainer = document.getElementById('lobby-peeking-cards');
+    if (peekingContainer && playerProfile.deck && playerProfile.deck.length >= 3) {
+        // Shuffle a bit or take top 3
+        const deckSample = playerProfile.deck.slice(0, 3);
+        peekingContainer.innerHTML = '';
+        deckSample.forEach((cardId, i) => {
+            const cardData = getCardById(cardId);
+            const cardEl = document.createElement('div');
+            cardEl.className = `peek-card card-${i+1}`;
+            if (cardData) {
+                // Apply a visual style matching the card
+                let tIcon = '❓';
+                if(cardData.tribes && cardData.tribes.length > 0) {
+                    const mainTribe = cardData.tribes[0];
+                    if(mainTribe === TRIBES.NATUREZA) tIcon = '🍃';
+                    if(mainTribe === TRIBES.URBANO) tIcon = '🏙️';
+                    if(mainTribe === TRIBES.ANIMAL) tIcon = '🐾';
+                    if(mainTribe === TRIBES.AQUATICO) tIcon = '💧';
+                    if(mainTribe === TRIBES.MAGICO) tIcon = '✨';
+                    if(mainTribe === TRIBES.FERRAMENTA) tIcon = '🛠️';
+                    if(mainTribe === TRIBES.COMIDA) tIcon = '🍔';
+                    if(mainTribe === TRIBES.VEICULO) tIcon = '🚗';
+                    if(mainTribe === TRIBES.PROFISSAO) tIcon = '💼';
+                    if(mainTribe === TRIBES.TERRENO) tIcon = '🌍';
+                    if(mainTribe === TRIBES.MISTICO) tIcon = '🔮';
+                    if(mainTribe === TRIBES.TECNOLOGIA) tIcon = '⚙️';
+                }
+                cardEl.innerHTML = `<div style="text-align:center; font-size:1.5rem; margin-top:20px;">${tIcon}</div>`;
+                cardEl.style.background = `linear-gradient(135deg, ${cardData.color || '#34495e'}, #2c3e50)`;
+            }
+            peekingContainer.appendChild(cardEl);
+        });
+    }
+
+}
+
+function renderChestSlots() {
+    // Assuming playerProfile.chests = [{id: 'silver', unlockTime: null}, null, null, null]
+    if (!playerProfile.chests) {
+        playerProfile.chests = [null, null, null, null];
+    }
+
+    for(let i = 0; i < 4; i++) {
+        const slotEl = document.getElementById(`chest-slot-${i}`);
+        if(!slotEl) continue;
+
+        const chest = playerProfile.chests[i];
+        if (chest) {
+            slotEl.classList.add('filled');
+            slotEl.innerHTML = `📦<div class="chest-timer">Abrir</div>`;
+            slotEl.onclick = () => {
+                // Dummy open logic for now
+                playerProfile.chests[i] = null;
+                playerProfile.coins += 50;
+                saveProfile();
+                showNotification("Baú Aberto! +50 🪙", "success");
+                renderChestSlots();
+            };
+        } else {
+            slotEl.classList.remove('filled');
+            slotEl.innerHTML = `Vazio`;
+            slotEl.onclick = null;
+        }
+    }
 }
 
 })();
