@@ -1,4 +1,9 @@
+const fs = require('fs');
 
+// We have the syntax error again because split_perfect.js uses regex and substring.
+// Let's rewrite state.js manually with the EXACT strings.
+
+const stateContent = `
 class SaveManager {
     static SECRET_KEY = 'Em0j!@r3n4#2026';
 
@@ -25,7 +30,7 @@ class SaveManager {
         const base64 = btoa(unescape(encodeURIComponent(xored)));
         const hash = this.generateHash(jsonStr);
 
-        const finalSave = `${base64}|${hash}`;
+        const finalSave = \`\${base64}|\${hash}\`;
         localStorage.setItem('Emoji_Arena_SaveData_v1', finalSave);
     }
 
@@ -150,9 +155,9 @@ let gameState = {
     }
 };
 
+let observer;
 window.addEventListener('load', () => {
-    if (!window.MutationObserver) return;
-    const domObserver = new MutationObserver((mutations) => {
+    observer = new MutationObserver((mutations) => {
         mutations.forEach(mutation => {
             mutation.addedNodes.forEach(node => {
                 if (node.tagName && node.tagName.toLowerCase() === 'script') {
@@ -172,7 +177,7 @@ window.addEventListener('load', () => {
             });
         });
     });
-    domObserver.observe(document.documentElement, { childList: true, subtree: true });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
 });
 
 const originalSetTimeout = window.setTimeout;
@@ -212,3 +217,6 @@ function verifyIntegrity(func, expectedLengthRange) {
         throw new Error("Integrity compromised.");
     }
 }
+`;
+
+fs.writeFileSync('state.js', stateContent);
