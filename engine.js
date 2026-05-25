@@ -1,29 +1,3 @@
-function generateDraftPool() {
-    const pool = [];
-    const dist = {
-        [RARITIES.COMMON]: 45,
-        [RARITIES.UNCOMMON]: 20,
-        [RARITIES.RARE]: 10,
-        [RARITIES.EPIC]: 4,
-        [RARITIES.LEGENDARY]: 1
-    };
-
-    Object.keys(dist).forEach(rarity => {
-        const availableCards = CardDatabase.filter(c => c.rarity === rarity && c.type !== CARD_TYPES.ENVIRONMENT); // Exclude envs to be safe, or include. Let's include everything.
-        const allRarityCards = CardDatabase.filter(c => c.rarity === rarity);
-
-        for (let i = 0; i < dist[rarity]; i++) {
-            if (allRarityCards.length > 0) {
-                const randomCard = allRarityCards[Math.floor(Math.random() * allRarityCards.length)];
-                pool.push(randomCard.id);
-            }
-        }
-    });
-
-    // Shuffle pool
-    return pool.sort(() => 0.5 - Math.random());
-}
-
 
 
 function claimArenaVault(wins) {
@@ -64,32 +38,6 @@ function claimArenaVault(wins) {
     playerProfile.arenaState = null;
     saveProfile();
     showScreenSPA('main-menu');
-}
-
-
-function startArenaDraft() {
-    if (playerProfile.coins < 150 && !playerProfile.arenaState) {
-        showNotification("Moedas insuficientes para entrar na Arena (Custo: 150 💰)", "error");
-        return;
-    }
-
-    // Only charge if starting a fresh run
-    if (!playerProfile.arenaState) {
-        playerProfile.coins -= 150;
-        playerProfile.arenaState = {
-            pool: generateDraftPool(),
-            deck: [],
-            wins: 0,
-            losses: 0,
-            currentChoices: []
-        };
-        saveProfile();
-        showNotification("Bem-vindo à Arena! Custo: 150 💰", "success");
-    }
-
-    currentMatchMode = 'draft';
-    showScreenSPA('draft-screen');
-    renderDraftChoices();
 }
 
 
@@ -176,14 +124,6 @@ function startTurn(side) {
 }
 
 
-function endTurn() {
-    if (!gameState.isPlayerTurn) return;
-    gameState.isPlayerTurn = false;
-    updateBattleUI();
-    startTurn('opponent');
-}
-
-
 function playCard(laneIndex, side = 'player') {
     if (gameState.selectedCardIndex === null && side === 'player') return;
 
@@ -243,202 +183,6 @@ function playCard(laneIndex, side = 'player') {
 }
 
 
-function triggerBattlecry(side, laneIndex, battlecry) {
-    if (battlecry.effect.addBattery) {
-        gameState[side].battery += battlecry.effect.addBattery;
-    }
-    if (battlecry.effect.draw) {
-        drawCard(side, battlecry.effect.draw);
-    }
-    // Simplification for other battlecries (random targets)
-}
-
-
-
-
-
-function endGame(isWin) {
-    AudioManager.playBGM(isWin ? 'bgm_victory' : 'bgm_defeat');
-
-    // SPA Transition is handled via showScreenSPA
-    // Do NOT hide the battle screen manually here to avoid desync
-
-    const resultsScreen = document.getElementById('game-over-overlay');
-    if (resultsScreen) {
-        resultsScreen.classList.remove('hidden');
-    }
-
-    const title = document.getElementById('game-over-title');
-    const rewards = document.getElementById('game-over-rewards');
-    const btnReturnMenu = document.getElementById('btn-return-menu');
-
-    if (isWin) {
-        if(title) { title.innerText = "VITÓRIA!"; title.style.color = "#FFD700"; }
-        if(rewards) rewards.innerText = "+25 XP | +10 Moedas";
-
-        addXP(25);
-        playerProfile.coins += 10;
-
-        // Battle Pass integration (Módulo 8.1)
-        if(typeof addCrowns === 'function') addCrowns(10);
-        // Grant a chest if there's an empty slot
-        if (!playerProfile.chests) playerProfile.chests = [null, null, null, null];
-        const emptySlotIdx = playerProfile.chests.findIndex(c => c === null);
-        if (emptySlotIdx !== -1) {
-            playerProfile.chests[emptySlotIdx] = { id: 'basic_chest', unlockTime: Date.now() + 30000 }; // 30 sec dummy
-        }
-
-
-        if (currentMatchMode === 'ranked') {
-            playerProfile.elo += 25;
-            playerProfile.rankedWins++;
-        }
-
-    } else {
-        if(title) { title.innerText = "DERROTA"; title.style.color = "#FF4444"; }
-        if(rewards) rewards.innerText = "+5 XP | +2 Moedas";
-
-        addXP(5);
-        playerProfile.coins += 2;
-
-        // Battle Pass integration (Módulo 8.1)
-        if(typeof addCrowns === 'function') addCrowns(2);
-
-        if (currentMatchMode === 'ranked') {
-            playerProfile.elo = Math.max(0, playerProfile.elo - 15);
-            playerProfile.rankedLosses++;
-        }
-    }
-
-
-    // Draft Arena End Game Logic (Módulo 9.2)
-    if (currentMatchMode === 'draft') {
-        const s = playerProfile.arenaState;
-        if (s) {
-            if (isWin) s.wins++;
-            else s.losses++;
-
-            saveProfile();
-
-            if (s.wins >= 12 || s.losses >= 3) {
-                if (rewards) rewards.innerText = `Fim da Arena! Vitórias: ${s.wins}`;
-                if (btnReturnMenu) {
-                    btnReturnMenu.innerText = "Resgatar Recompensas";
-                    btnReturnMenu.onclick = () => {
-                        if(resultsScreen) resultsScreen.classList.add('hidden');
-                        claimArenaVault(s.wins);
-                    };
-                }
-                return; // Stop default menu routing
-            } else {
-                if (rewards) rewards.innerText = `Vitórias: ${s.wins}/12 | Derrotas: ${s.losses}/3`;
-                if (btnReturnMenu) {
-                    btnReturnMenu.innerText = "Continuar Arena";
-                    btnReturnMenu.onclick = () => {
-                        if(resultsScreen) resultsScreen.classList.add('hidden');
-                        showScreenSPA('draft-screen');
-                        renderDraftChoices(); // Update UI counters
-                    };
-                }
-                return;
-            }
-        }
-    }
-
-    // Endless Mode End Game Logic (Módulo 9.1)
-    if (currentMatchMode === 'endless') {
-        if (isWin) {
-            const s = playerProfile.endlessState;
-            if(!s) return;
-
-            // Recompensa Exponencial
-            let lootEarned = Math.floor(20 * Math.pow(1.15, s.currentWave));
-            s.loot += lootEarned;
-
-            // Heal 20% max HP
-            let healAmt = Math.floor(s.maxPlayerHp * 0.20);
-            s.playerHp = Math.min(s.maxPlayerHp, gameState.player.hp + healAmt);
-
-            if(rewards) rewards.innerText = `Onda ${s.currentWave} Concluída! (+${lootEarned} 💰 na sacola)`;
-
-            saveProfile();
-
-            if (btnReturnMenu) {
-                btnReturnMenu.innerText = "Continuar";
-                btnReturnMenu.onclick = () => {
-                    if(resultsScreen) resultsScreen.classList.add('hidden');
-                    if (s.currentWave % 5 === 0) {
-                        // Trigger Risk / Reward Modal
-                        openEndlessDecisionModal();
-                    } else {
-                        s.currentWave++;
-                        saveProfile();
-                        startMatchmaking(false); // Next wave
-                    }
-                };
-            }
-            return; // Skip standard return to menu
-
-        } else {
-            // Defeat in endless
-            const s = playerProfile.endlessState;
-            if(!s) return;
-            const keptLoot = Math.floor(s.loot * 0.3); // Perde 70%
-            playerProfile.coins += keptLoot;
-
-            showNotification(`Fim da Linha! Você sobreviveu até a Onda ${s.currentWave}. Você salvou ${keptLoot} Moedas.`, "error");
-
-            saveEndlessLeaderboard(s.currentWave, s.dominantTribe, keptLoot);
-
-            playerProfile.endlessState = null;
-            saveProfile();
-
-            if (btnReturnMenu) {
-                btnReturnMenu.innerText = "Voltar";
-                btnReturnMenu.onclick = () => {
-                    if(resultsScreen) resultsScreen.classList.add('hidden');
-                    showScreen(screens.LEADERBOARD);
-                };
-            }
-            return; // Skip standard return to menu
-        }
-    }
-
-    // Roguelike End Game Logic (Módulo 9)
-    if (currentMatchMode === 'roguelike') {
-        if (isWin) {
-            playerProfile.roguelikeState.currentNode.completed = true;
-            playerProfile.roguelikeState.coins += 15;
-            playerProfile.roguelikeState.playerHp = gameState.player.hp;
-            saveProfile();
-            if(rewards) rewards.innerText += " | +15 Ouro (Run)";
-        } else {
-            playerProfile.roguelikeState = null;
-            saveProfile();
-        }
-    }
-
-    saveProfile();
-    updateUIProfile();
-
-    // Default return to menu behavior
-    if (btnReturnMenu) {
-        btnReturnMenu.innerText = "Voltar ao Menu";
-        btnReturnMenu.onclick = () => {
-            if(resultsScreen) resultsScreen.classList.add('hidden');
-            if (currentMatchMode === 'roguelike' && isWin) {
-                renderMapScreen();
-            } else if (currentMatchMode === 'roguelike' && !isWin) {
-                showScreen(screens.MENU);
-            } else {
-                showScreen(screens.MENU);
-            }
-            AudioManager.playBGM('bgm_menu');
-        };
-    }
-}
-
-
 function checkWinCondition() {
     const pRatio = gameState.player.hp / gameState.player.maxHp;
     const oRatio = gameState.opponent.hp / gameState.opponent.maxHp;
@@ -457,8 +201,10 @@ function checkWinCondition() {
 
 
 function startBattle() {
-    document.getElementById('player-hand').innerHTML = '';
-    document.getElementById('enemy-hand').innerHTML = '';
+    const pHand = document.getElementById('player-hand');
+    const eHand = document.getElementById('enemy-hand');
+    if(pHand) pHand.innerHTML = '';
+    if(eHand) eHand.innerHTML = '';
     const slots = document.querySelectorAll('.board-slot');
     slots.forEach(slot => { slot.innerHTML = ''; slot.className = 'board-slot empty'; });
 
