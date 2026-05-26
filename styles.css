@@ -2004,33 +2004,3 @@ button:active {
     font-style: normal;
     font-weight: bold;
 }
-
-
-/* =========================================
-   MÓDULO DE EXPANSÃO 1: STAT ICONS
-   ========================================= */
-
-.stat-icon {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 1rem;
-    font-weight: bold;
-}
-
-/* Pseudo-elementos de injeção visual */
-.stat-icon::before {
-    display: inline-block;
-}
-
-.stat-hp[data-trait="normal"]::before { content: '❤️'; }
-.stat-hp[data-trait="normal"] span { color: #e74c3c; text-shadow: 1px 1px 0 #000; }
-
-.stat-hp[data-trait="armor"]::before { content: '🛡️'; }
-.stat-hp[data-trait="armor"] span { color: #bdc3c7; text-shadow: 0 0 5px #7f8c8d, 1px 1px 2px #000; }
-
-.stat-atk[data-trait="normal"]::before { content: '⚔️'; }
-.stat-atk[data-trait="normal"] span { color: #f1c40f; text-shadow: 1px 1px 0 #000; }
-
-.stat-atk[data-trait="pierce"]::before { content: '🏹'; }
-.stat-atk[data-trait="pierce"] span { color: #00ffff; text-shadow: 0 0 8px #00ffff, 0 0 15px #0088ff, 1px 1px 2px #000; }

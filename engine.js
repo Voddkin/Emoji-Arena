@@ -1,3 +1,29 @@
+function generateDraftPool() {
+    const pool = [];
+    const dist = {
+        [RARITIES.COMMON]: 45,
+        [RARITIES.UNCOMMON]: 20,
+        [RARITIES.RARE]: 10,
+        [RARITIES.EPIC]: 4,
+        [RARITIES.LEGENDARY]: 1
+    };
+
+    Object.keys(dist).forEach(rarity => {
+        const availableCards = CardDatabase.filter(c => c.rarity === rarity && c.type !== CARD_TYPES.ENVIRONMENT); // Exclude envs to be safe, or include. Let's include everything.
+        const allRarityCards = CardDatabase.filter(c => c.rarity === rarity);
+
+        for (let i = 0; i < dist[rarity]; i++) {
+            if (allRarityCards.length > 0) {
+                const randomCard = allRarityCards[Math.floor(Math.random() * allRarityCards.length)];
+                pool.push(randomCard.id);
+            }
+        }
+    });
+
+    // Shuffle pool
+    return pool.sort(() => 0.5 - Math.random());
+}
+
 
 
 function claimArenaVault(wins) {
@@ -41,6 +67,32 @@ function claimArenaVault(wins) {
 }
 
 
+function startArenaDraft() {
+    if (playerProfile.coins < 150 && !playerProfile.arenaState) {
+        showNotification("Moedas insuficientes para entrar na Arena (Custo: 150 💰)", "error");
+        return;
+    }
+
+    // Only charge if starting a fresh run
+    if (!playerProfile.arenaState) {
+        playerProfile.coins -= 150;
+        playerProfile.arenaState = {
+            pool: generateDraftPool(),
+            deck: [],
+            wins: 0,
+            losses: 0,
+            currentChoices: []
+        };
+        saveProfile();
+        showNotification("Bem-vindo à Arena! Custo: 150 💰", "success");
+    }
+
+    currentMatchMode = 'draft';
+    showScreenSPA('draft-screen');
+    renderDraftChoices();
+}
+
+
 function startTurn(side) {
     gameState.turn++;
 
@@ -51,39 +103,6 @@ function startTurn(side) {
     gameState[side].credits = maxCred;
     if (currentMatchMode === 'roguelike' && gameState.turn === 1 && side === 'player') RelicManager.triggerStartCombat();
     gameState[side].heroUsed = false;
-    // --- Mecânica de Envenenado ---
-    ['player', 'opponent'].forEach(s => {
-        gameState[s].board.forEach((card, idx) => {
-            if (card && typeof hasKeyword === 'function' && hasKeyword(card, 'envenenado')) {
-                card.hp -= 1;
-                let slotPrefix = s === 'player' ? 'player' : 'opp';
-                let el = document.querySelector(`#${slotPrefix}-slot-${idx} .card`);
-                if (el) {
-                    el.style.boxShadow = '0 0 15px #2ecc71';
-                    setTimeout(() => el.style.boxShadow = '', 800);
-                }
-                if (typeof AudioManager !== 'undefined') AudioManager.playSFX('ui_error');
-            }
-        });
-    });
-    if (typeof checkDeadCards === 'function') checkDeadCards();
-
-    ['player', 'opponent'].forEach(s => {
-        gameState[s].board.forEach((card, idx) => {
-            if (card && hasKeyword(card, 'envenenado')) {
-                card.hp -= 1;
-                let slotPrefix = s === 'player' ? 'player' : 'opp';
-                let el = document.querySelector(`#${slotPrefix}-slot-${idx} .card`);
-                if (el) {
-                    el.style.boxShadow = '0 0 15px #2ecc71';
-                    setTimeout(() => el.style.boxShadow = '', 800);
-                }
-                if (typeof AudioManager !== 'undefined') AudioManager.playSFX('ui_error');
-            }
-        });
-    });
-    checkDeadCards();
-
 
         // Mutations Turn Hook
     if (currentMatchMode === 'endless' && side === 'player') {
@@ -157,6 +176,14 @@ function startTurn(side) {
 }
 
 
+function endTurn() {
+    if (!gameState.isPlayerTurn) return;
+    gameState.isPlayerTurn = false;
+    updateBattleUI();
+    startTurn('opponent');
+}
+
+
 function playCard(laneIndex, side = 'player') {
     if (gameState.selectedCardIndex === null && side === 'player') return;
 
@@ -216,6 +243,202 @@ function playCard(laneIndex, side = 'player') {
 }
 
 
+function triggerBattlecry(side, laneIndex, battlecry) {
+    if (battlecry.effect.addBattery) {
+        gameState[side].battery += battlecry.effect.addBattery;
+    }
+    if (battlecry.effect.draw) {
+        drawCard(side, battlecry.effect.draw);
+    }
+    // Simplification for other battlecries (random targets)
+}
+
+
+
+
+
+function endGame(isWin) {
+    AudioManager.playBGM(isWin ? 'bgm_victory' : 'bgm_defeat');
+
+    // SPA Transition is handled via showScreenSPA
+    // Do NOT hide the battle screen manually here to avoid desync
+
+    const resultsScreen = document.getElementById('game-over-overlay');
+    if (resultsScreen) {
+        resultsScreen.classList.remove('hidden');
+    }
+
+    const title = document.getElementById('game-over-title');
+    const rewards = document.getElementById('game-over-rewards');
+    const btnReturnMenu = document.getElementById('btn-return-menu');
+
+    if (isWin) {
+        if(title) { title.innerText = "VITÓRIA!"; title.style.color = "#FFD700"; }
+        if(rewards) rewards.innerText = "+25 XP | +10 Moedas";
+
+        addXP(25);
+        playerProfile.coins += 10;
+
+        // Battle Pass integration (Módulo 8.1)
+        if(typeof addCrowns === 'function') addCrowns(10);
+        // Grant a chest if there's an empty slot
+        if (!playerProfile.chests) playerProfile.chests = [null, null, null, null];
+        const emptySlotIdx = playerProfile.chests.findIndex(c => c === null);
+        if (emptySlotIdx !== -1) {
+            playerProfile.chests[emptySlotIdx] = { id: 'basic_chest', unlockTime: Date.now() + 30000 }; // 30 sec dummy
+        }
+
+
+        if (currentMatchMode === 'ranked') {
+            playerProfile.elo += 25;
+            playerProfile.rankedWins++;
+        }
+
+    } else {
+        if(title) { title.innerText = "DERROTA"; title.style.color = "#FF4444"; }
+        if(rewards) rewards.innerText = "+5 XP | +2 Moedas";
+
+        addXP(5);
+        playerProfile.coins += 2;
+
+        // Battle Pass integration (Módulo 8.1)
+        if(typeof addCrowns === 'function') addCrowns(2);
+
+        if (currentMatchMode === 'ranked') {
+            playerProfile.elo = Math.max(0, playerProfile.elo - 15);
+            playerProfile.rankedLosses++;
+        }
+    }
+
+
+    // Draft Arena End Game Logic (Módulo 9.2)
+    if (currentMatchMode === 'draft') {
+        const s = playerProfile.arenaState;
+        if (s) {
+            if (isWin) s.wins++;
+            else s.losses++;
+
+            saveProfile();
+
+            if (s.wins >= 12 || s.losses >= 3) {
+                if (rewards) rewards.innerText = `Fim da Arena! Vitórias: ${s.wins}`;
+                if (btnReturnMenu) {
+                    btnReturnMenu.innerText = "Resgatar Recompensas";
+                    btnReturnMenu.onclick = () => {
+                        if(resultsScreen) resultsScreen.classList.add('hidden');
+                        claimArenaVault(s.wins);
+                    };
+                }
+                return; // Stop default menu routing
+            } else {
+                if (rewards) rewards.innerText = `Vitórias: ${s.wins}/12 | Derrotas: ${s.losses}/3`;
+                if (btnReturnMenu) {
+                    btnReturnMenu.innerText = "Continuar Arena";
+                    btnReturnMenu.onclick = () => {
+                        if(resultsScreen) resultsScreen.classList.add('hidden');
+                        showScreenSPA('draft-screen');
+                        renderDraftChoices(); // Update UI counters
+                    };
+                }
+                return;
+            }
+        }
+    }
+
+    // Endless Mode End Game Logic (Módulo 9.1)
+    if (currentMatchMode === 'endless') {
+        if (isWin) {
+            const s = playerProfile.endlessState;
+            if(!s) return;
+
+            // Recompensa Exponencial
+            let lootEarned = Math.floor(20 * Math.pow(1.15, s.currentWave));
+            s.loot += lootEarned;
+
+            // Heal 20% max HP
+            let healAmt = Math.floor(s.maxPlayerHp * 0.20);
+            s.playerHp = Math.min(s.maxPlayerHp, gameState.player.hp + healAmt);
+
+            if(rewards) rewards.innerText = `Onda ${s.currentWave} Concluída! (+${lootEarned} 💰 na sacola)`;
+
+            saveProfile();
+
+            if (btnReturnMenu) {
+                btnReturnMenu.innerText = "Continuar";
+                btnReturnMenu.onclick = () => {
+                    if(resultsScreen) resultsScreen.classList.add('hidden');
+                    if (s.currentWave % 5 === 0) {
+                        // Trigger Risk / Reward Modal
+                        openEndlessDecisionModal();
+                    } else {
+                        s.currentWave++;
+                        saveProfile();
+                        startMatchmaking(false); // Next wave
+                    }
+                };
+            }
+            return; // Skip standard return to menu
+
+        } else {
+            // Defeat in endless
+            const s = playerProfile.endlessState;
+            if(!s) return;
+            const keptLoot = Math.floor(s.loot * 0.3); // Perde 70%
+            playerProfile.coins += keptLoot;
+
+            showNotification(`Fim da Linha! Você sobreviveu até a Onda ${s.currentWave}. Você salvou ${keptLoot} Moedas.`, "error");
+
+            saveEndlessLeaderboard(s.currentWave, s.dominantTribe, keptLoot);
+
+            playerProfile.endlessState = null;
+            saveProfile();
+
+            if (btnReturnMenu) {
+                btnReturnMenu.innerText = "Voltar";
+                btnReturnMenu.onclick = () => {
+                    if(resultsScreen) resultsScreen.classList.add('hidden');
+                    showScreen(screens.LEADERBOARD);
+                };
+            }
+            return; // Skip standard return to menu
+        }
+    }
+
+    // Roguelike End Game Logic (Módulo 9)
+    if (currentMatchMode === 'roguelike') {
+        if (isWin) {
+            playerProfile.roguelikeState.currentNode.completed = true;
+            playerProfile.roguelikeState.coins += 15;
+            playerProfile.roguelikeState.playerHp = gameState.player.hp;
+            saveProfile();
+            if(rewards) rewards.innerText += " | +15 Ouro (Run)";
+        } else {
+            playerProfile.roguelikeState = null;
+            saveProfile();
+        }
+    }
+
+    saveProfile();
+    updateUIProfile();
+
+    // Default return to menu behavior
+    if (btnReturnMenu) {
+        btnReturnMenu.innerText = "Voltar ao Menu";
+        btnReturnMenu.onclick = () => {
+            if(resultsScreen) resultsScreen.classList.add('hidden');
+            if (currentMatchMode === 'roguelike' && isWin) {
+                renderMapScreen();
+            } else if (currentMatchMode === 'roguelike' && !isWin) {
+                showScreen(screens.MENU);
+            } else {
+                showScreen(screens.MENU);
+            }
+            AudioManager.playBGM('bgm_menu');
+        };
+    }
+}
+
+
 function checkWinCondition() {
     const pRatio = gameState.player.hp / gameState.player.maxHp;
     const oRatio = gameState.opponent.hp / gameState.opponent.maxHp;
@@ -234,10 +457,8 @@ function checkWinCondition() {
 
 
 function startBattle() {
-    const pHand = document.getElementById('player-hand');
-    const eHand = document.getElementById('enemy-hand');
-    if(pHand) pHand.innerHTML = '';
-    if(eHand) eHand.innerHTML = '';
+    document.getElementById('player-hand').innerHTML = '';
+    document.getElementById('enemy-hand').innerHTML = '';
     const slots = document.querySelectorAll('.board-slot');
     slots.forEach(slot => { slot.innerHTML = ''; slot.className = 'board-slot empty'; });
 
@@ -459,267 +680,74 @@ function botTurn() {
     }, 1500);
 }
 
-
-// --- KEYWORD HELPERS ---
-function hasKeyword(card, keywordId) {
-    if (!card || !card.keywords || !Array.isArray(card.keywords)) return false;
-    return card.keywords.some(k => {
-        if (typeof k === 'string') return k === keywordId;
-        if (typeof k === 'object' && k !== null) return k.id === keywordId;
-        return false;
-    });
-}
-
-function getKeywordValue(card, keywordId) {
-    if (!card || !card.keywords || !Array.isArray(card.keywords)) return 0;
-    for (let k of card.keywords) {
-        if (typeof k === 'object' && k !== null && k.id === keywordId) {
-            return k.val || 0;
-        }
+function resolveSpell(side, card, targetIndex) {
+    if (currentMatchMode === 'roguelike' && side === 'player' && playerProfile.currentRunState && playerProfile.currentRunState.currentNodeTier === 29) {
+        showNotification("ANOMALIA: O Mestre do Clima ataca!", "error");
+        triggerDamageAnimation('opponent', null, 'player', null, 2);
+        gameState.player.hp -= 2;
     }
-    return 0;
-}
-
-
-
-// --- EXPANSION MODULE 2: COMBAT MATH ---
-
-function applyDamageToTarget(attacker, defender, rawDamage, isSplash = false) {
-    let result = { actualDamageDealt: 0, isDead: false, overflow: 0 };
-    if (!defender) return result;
-
-    if (getKeywordValue(defender, 'escudo') > 0 || (defender.keywords && defender.keywords.includes('escudo'))) {
-        let removed = false;
-        if (Array.isArray(defender.keywords)) {
-            for (let i = 0; i < defender.keywords.length; i++) {
-                if (typeof defender.keywords[i] === 'object' && defender.keywords[i].id === 'escudo') {
-                    defender.keywords[i].val = 0;
-                    removed = true;
-                } else if (defender.keywords[i] === 'escudo') {
-                    defender.keywords.splice(i, 1);
-                    removed = true;
-                    i--;
-                }
-            }
-        }
-        if (removed) return result;
+    // Check for Counter-Spell Secret
+    const oppSide = side === 'player' ? 'opponent' : 'player';
+    const counterIdx = gameState[oppSide].secrets.findIndex(s => s.effect.cancelSpell);
+    if (counterIdx > -1) {
+        gameState[oppSide].secrets.splice(counterIdx, 1);
+        showNotification(`SEGREDO REVELADO: Contra-Feitiço cancelou ${card.name}!`, "error");
+        return;
     }
 
-    let armor = getKeywordValue(defender, 'armadura');
-    let danoFinal = rawDamage - armor;
-    if (danoFinal < 0) danoFinal = 0;
-
-    defender.hp -= danoFinal;
-    result.actualDamageDealt = danoFinal;
-
-    if (defender.hp < 0) result.overflow = Math.abs(defender.hp);
-    if (defender.hp <= 0) result.isDead = true;
-
-    if (!isSplash && result.actualDamageDealt > 0 && attacker) {
-        if (hasKeyword(attacker, 'toxico')) {
-            if (!defender.keywords) defender.keywords = [];
-            if (!hasKeyword(defender, 'envenenado')) defender.keywords.push('envenenado');
-        }
-        if (hasKeyword(attacker, 'mortal')) {
-            if (defender.type !== (typeof CARD_TYPES !== 'undefined' ? CARD_TYPES.HERO : 'hero') && defender.type !== (typeof CARD_TYPES !== 'undefined' ? CARD_TYPES.ENVIRONMENT : 'environment')) {
-                defender.hp = 0;
-                result.isDead = true;
-            }
-        }
+    if (card.effect.draw) {
+        drawCard(side, card.effect.draw);
     }
-
-    return result;
-}
-
-function executeAttack(attackerIdx, defenderIdx, isPlayer = true) {
-    let attackerSide = isPlayer ? gameState.player : gameState.opponent;
-    let defenderSide = isPlayer ? gameState.opponent : gameState.player;
-
-    let attackerCard = attackerSide.board[attackerIdx];
-    if (!attackerCard) return;
-
-    attackerCard.exhausted = true;
-
-    let prefixA = isPlayer ? 'player' : 'opp';
-    const attackerEl = document.querySelector(`#${prefixA}-slot-${attackerIdx} .card`);
-    if (attackerEl) attackerEl.classList.add('attack-animation');
-
-    const secretIdx = defenderSide.secrets.findIndex(s => s.trigger === 'on_attacked');
-    if (secretIdx > -1 && isPlayer) {
-        const secret = defenderSide.secrets[secretIdx];
-        if (secret.effect.killAttacker) {
-            attackerCard.hp = 0;
-            showNotification(`SEGREDO: Armadilha destruiu seu ${attackerCard.name}!`, "error");
-            defenderSide.secrets.splice(secretIdx, 1);
-            checkDeadCards();
-            updateBattleUI();
-            return;
-        }
+    if (card.effect.heal) {
+        gameState[side].hp = Math.min(gameState[side].maxHp, gameState[side].hp + card.effect.heal);
     }
-
-    setTimeout(() => {
-        let baseAtk = attackerCard.atk;
-
-        if (defenderIdx === null) {
-            baseAtk += getKeywordValue(attackerCard, 'cacador');
+    if (card.effect.addBattery) {
+        gameState[side].battery += card.effect.addBattery;
+    }
+    if (card.effect.damage) {
+        if (currentMatchMode === 'endless' && side === 'opponent' && playerProfile.endlessState.activeMutation && playerProfile.endlessState.activeMutation.id === 'vampirism') {
+            gameState.opponent.hp += card.effect.damage;
+            AudioManager.playSFX('hero_heal');
         }
+        // Simple random target for now if not specified
+        const oppBoard = gameState[side === 'player' ? 'opponent' : 'player'].board;
+        let validTargets = [];
+        oppBoard.forEach((c, i) => { if (c) validTargets.push(i); });
 
-        if (defenderIdx !== null) {
-            let defenderCard = defenderSide.board[defenderIdx];
-            if (!defenderCard) {
-                checkDeadCards();
-                updateBattleUI();
-                return;
-            }
-
-            if (typeof AudioManager !== 'undefined') AudioManager.playSFX('combat_hit');
-            if (isPlayer && document.querySelector(`#opp-slot-${defenderIdx} .card`)) {
-                document.querySelector(`#opp-slot-${defenderIdx} .card`).classList.add('collision-flash');
-            }
-
-            let defAtk = defenderCard.atk;
-
-            let attackResult = applyDamageToTarget(attackerCard, defenderCard, baseAtk, false);
-            let defenseResult = applyDamageToTarget(defenderCard, attackerCard, defAtk, false);
-
-            if (typeof triggerDamageAnimation === 'function') {
-                triggerDamageAnimation(isPlayer ? 'player' : 'opponent', attackerIdx, isPlayer ? 'opponent' : 'player', defenderIdx, attackResult.actualDamageDealt);
-                if (defenseResult.actualDamageDealt > 0) {
-                    triggerDamageAnimation(isPlayer ? 'opponent' : 'player', defenderIdx, isPlayer ? 'player' : 'opponent', attackerIdx, defenseResult.actualDamageDealt);
-                }
-            }
-
-            if (hasKeyword(attackerCard, 'perfuracao') && attackResult.overflow > 0) {
-                defenderSide.hp -= attackResult.overflow;
-                if (typeof triggerDamageAnimation === 'function') {
-                    triggerDamageAnimation(isPlayer ? 'player' : 'opponent', attackerIdx, isPlayer ? 'opponent' : 'player', null, attackResult.overflow);
-                }
-            }
-
-            let splashVal = getKeywordValue(attackerCard, 'dano_area');
-            if (splashVal > 0) {
-                let adjIndices = [defenderIdx - 1, defenderIdx + 1];
-                adjIndices.forEach(adjIdx => {
-                    if (adjIdx >= 0 && adjIdx < 5 && defenderSide.board[adjIdx]) {
-                        let adjDefender = defenderSide.board[adjIdx];
-                        let splashResult = applyDamageToTarget(attackerCard, adjDefender, splashVal, true);
-                        if (splashResult.actualDamageDealt > 0 && typeof triggerDamageAnimation === 'function') {
-                            triggerDamageAnimation(isPlayer ? 'player' : 'opponent', attackerIdx, isPlayer ? 'opponent' : 'player', adjIdx, splashResult.actualDamageDealt);
-                        }
-                    }
-                });
-            }
-
-            if (hasKeyword(defenderCard, 'karma') && attackResult.actualDamageDealt > 0 && !attackResult.isDead) {
-                let karmaDmg = attackResult.actualDamageDealt;
-                let karmaResult = applyDamageToTarget(defenderCard, attackerCard, karmaDmg, true);
-                if (karmaResult.actualDamageDealt > 0 && typeof triggerDamageAnimation === 'function') {
-                    triggerDamageAnimation(isPlayer ? 'opponent' : 'player', defenderIdx, isPlayer ? 'player' : 'opponent', attackerIdx, karmaResult.actualDamageDealt);
-                }
-            }
-
+        if (card.target === 'all_troops') {
+            gameState.player.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
+            gameState.opponent.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
+        } else if (validTargets.length > 0) {
+            const tIdx = validTargets[Math.floor(Math.random() * validTargets.length)];
+            triggerDamageAnimation(side, null, oppSide, tIdx, card.effect.damage);
+            oppBoard[tIdx].hp -= card.effect.damage;
         } else {
-            const heroSecretIdx = defenderSide.secrets.findIndex(s => s.trigger === 'on_hero_attacked');
-            if (heroSecretIdx > -1 && isPlayer) {
-                const sct = defenderSide.secrets[heroSecretIdx];
-                defenderSide.secrets.splice(heroSecretIdx, 1);
-                showNotification(`SEGREDO REVELADO: ${sct.name}!`, "error");
-
-                if (sct.effect.preventDamage) {
-                    if (sct.effect.summon) {
-                        defenderSide.board[attackerIdx] = JSON.parse(JSON.stringify(getCardById(sct.effect.summon)));
-                    }
-                    updateBattleUI();
-                    return;
-                }
-            }
-
-            defenderSide.hp -= baseAtk;
-            if (typeof triggerDamageAnimation === 'function') {
-                triggerDamageAnimation(isPlayer ? 'player' : 'opponent', attackerIdx, isPlayer ? 'opponent' : 'player', null, baseAtk);
-            }
-
-            let avatarSelector = isPlayer ? '.bot-avatar' : '.player-avatar';
-            if(document.querySelector(avatarSelector)) {
-                document.querySelector(avatarSelector).classList.add('screen-shake');
-                setTimeout(() => {
-                    let el = document.querySelector(avatarSelector);
-                    if (el) el.classList.remove('screen-shake');
-                }, 400);
-            }
-
-            if (isPlayer && typeof matchStats !== 'undefined') {
-                matchStats.damageDealt += baseAtk;
-                if (typeof updateQuests === 'function') updateQuests('damage', baseAtk);
-            }
+            triggerDamageAnimation(side, null, oppSide, null, card.effect.damage);
+            gameState[oppSide].hp -= card.effect.damage;
         }
+    }
+    if (card.effect.kill) {
+        if (targetIndex !== null && gameState[oppSide].board[targetIndex]) {
+            gameState[oppSide].board[targetIndex].hp = 0;
+        }
+    }
 
-        if (attackerEl) attackerEl.classList.remove('attack-animation');
-        document.querySelectorAll('.targetable').forEach(el => {
-            el.classList.remove('targetable');
-            el.onclick = null;
-        });
-
-        checkDeadCards();
-        checkWinCondition();
-        updateBattleUI();
-
-    }, 200);
+    checkDeadCards();
 }
 
-function checkDeadCards() {
-    ["player", "opponent"].forEach(side => {
-        let oppSide = side === "player" ? "opponent" : "player";
-
-        gameState[side].board.forEach((card, i) => {
-            if (card && card.hp <= 0) {
-                if (hasKeyword(card, 'necromancia_infinita')) {
-                    card.hp = card.baseHp;
-                    showNotification(`${card.name} renasceu das cinzas!`, "info");
-                    return;
-                } else if (hasKeyword(card, 'necromancia')) {
-                    if (Array.isArray(card.keywords)) {
-                        card.keywords = card.keywords.filter(k => k !== 'necromancia' && (typeof k === 'object' ? k.id !== 'necromancia' : true));
-                    }
-                    card.hp = card.baseHp;
-                    showNotification(`${card.name} usou necromancia!`, "info");
-                    return;
-                }
-
-                if (hasKeyword(card, 'vinganca') && card.hp < 0) {
-                    let overkillDmg = Math.abs(card.hp);
-                    let killer = gameState[oppSide].board[i];
-                    if (killer) {
-                        applyDamageToTarget(card, killer, overkillDmg, true);
-                        if (typeof triggerDamageAnimation === 'function') triggerDamageAnimation(side, i, oppSide, i, overkillDmg);
-                    } else {
-                        gameState[oppSide].hp -= overkillDmg;
-                        if (typeof triggerDamageAnimation === 'function') triggerDamageAnimation(side, i, oppSide, null, overkillDmg);
-                    }
-                }
-
-                if (!gameState[side].graveyard) gameState[side].graveyard = [];
-                gameState[side].graveyard.push(card.id);
-
-                if (card.deathrattle) {
-                    if (card.deathrattle.damageOpponent) {
-                        gameState[oppSide].hp -= card.deathrattle.damageOpponent;
-                        if (typeof triggerDamageAnimation === 'function') triggerDamageAnimation(side, i, oppSide, null, card.deathrattle.damageOpponent);
-                    }
-                    if (card.deathrattle.drawCard && typeof drawCard === 'function') {
-                        drawCard(card.deathrattle.drawCard, side);
-                    }
-                }
-
-                let killer = gameState[oppSide].board[i];
-                if (killer && hasKeyword(killer, 'impeto') && killer.hp > 0 && !killer.hasUsedImpeto) {
-                    killer.exhausted = false;
-                    killer.hasUsedImpeto = true;
-                    showNotification(`${killer.name} usou Ímpeto para atacar novamente!`, "info");
-                }
-
-                gameState[side].board[i] = null;
+// --- MISSING CORE FUNCTIONS ---
+function drawCard(side, amount = 1) {
+    if (!gameState || !gameState[side]) return;
+    for (let i = 0; i < amount; i++) {
+        if (gameState[side].deck.length > 0 && gameState[side].hand.length < 10) {
+            let cardId = gameState[side].deck.shift();
+            if (cardId) {
+                let cardObj = JSON.parse(JSON.stringify(getCardById(cardId)));
+                gameState[side].hand.push(cardObj);
             }
-        });
-    });
+        }
+    }
+    if (typeof updateBattleUI === 'function') {
+        updateBattleUI();
+    }
 }
