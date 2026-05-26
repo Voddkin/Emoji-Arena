@@ -1561,7 +1561,6 @@ function renderChestSlots() {
 }
 
 function updateBattleUI() {
-    // Render Hand
     ['player', 'opponent'].forEach(side => {
         const handEl = document.getElementById(side + '-hand');
         if (!handEl) return;
@@ -1574,7 +1573,6 @@ function updateBattleUI() {
             if (side === 'player' && card.cost <= gameState.player.credits) {
                 cardEl.classList.add('playable');
                 cardEl.onclick = () => {
-                    // find empty slot
                     let emptySlot = gameState.player.board.findIndex(c => c === null);
                     if (emptySlot !== -1 && typeof playCard === 'function') {
                         playCard(emptySlot, 'player', i);
@@ -1584,7 +1582,6 @@ function updateBattleUI() {
             handEl.appendChild(cardEl);
         });
 
-        // Render Board
         for (let i = 0; i < 5; i++) {
             const slotEl = document.getElementById(side + '-slot-' + i);
             if (!slotEl) continue;
@@ -1608,7 +1605,6 @@ function updateBattleUI() {
             }
         }
 
-        // Update Stats
         const hpEl = document.getElementById(side + '-hero-hp');
         if (hpEl) hpEl.innerText = gameState[side].hp;
 

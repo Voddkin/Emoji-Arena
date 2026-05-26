@@ -1,4 +1,8 @@
-const GAME_PATCH_NOTES = [];
+const GAME_PATCH_NOTES = [
+
+
+
+
 
 const CARD_TYPES = {
     TROOP: 'troop',
@@ -34,11 +38,13 @@ const TRIBES = {
 };
 
 
-const CardDatabase = [];
+const CardDatabase = [
 
-const DAILY_QUESTS = [];
 
-const ACHIEVEMENTS = [];
+const DAILY_QUESTS = [
+
+
+const ACHIEVEMENTS = [
 
 if (typeof CARD_TYPES !== 'undefined') Object.freeze(CARD_TYPES);
 

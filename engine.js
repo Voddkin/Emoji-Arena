@@ -680,62 +680,6 @@ function botTurn() {
     }, 1500);
 }
 
-function resolveSpell(side, card, targetIndex) {
-    if (currentMatchMode === 'roguelike' && side === 'player' && playerProfile.currentRunState && playerProfile.currentRunState.currentNodeTier === 29) {
-        showNotification("ANOMALIA: O Mestre do Clima ataca!", "error");
-        triggerDamageAnimation('opponent', null, 'player', null, 2);
-        gameState.player.hp -= 2;
-    }
-    // Check for Counter-Spell Secret
-    const oppSide = side === 'player' ? 'opponent' : 'player';
-    const counterIdx = gameState[oppSide].secrets.findIndex(s => s.effect.cancelSpell);
-    if (counterIdx > -1) {
-        gameState[oppSide].secrets.splice(counterIdx, 1);
-        showNotification(`SEGREDO REVELADO: Contra-Feitiço cancelou ${card.name}!`, "error");
-        return;
-    }
-
-    if (card.effect.draw) {
-        drawCard(side, card.effect.draw);
-    }
-    if (card.effect.heal) {
-        gameState[side].hp = Math.min(gameState[side].maxHp, gameState[side].hp + card.effect.heal);
-    }
-    if (card.effect.addBattery) {
-        gameState[side].battery += card.effect.addBattery;
-    }
-    if (card.effect.damage) {
-        if (currentMatchMode === 'endless' && side === 'opponent' && playerProfile.endlessState.activeMutation && playerProfile.endlessState.activeMutation.id === 'vampirism') {
-            gameState.opponent.hp += card.effect.damage;
-            AudioManager.playSFX('hero_heal');
-        }
-        // Simple random target for now if not specified
-        const oppBoard = gameState[side === 'player' ? 'opponent' : 'player'].board;
-        let validTargets = [];
-        oppBoard.forEach((c, i) => { if (c) validTargets.push(i); });
-
-        if (card.target === 'all_troops') {
-            gameState.player.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
-            gameState.opponent.board.forEach(c => { if(c) c.hp -= card.effect.damage; });
-        } else if (validTargets.length > 0) {
-            const tIdx = validTargets[Math.floor(Math.random() * validTargets.length)];
-            triggerDamageAnimation(side, null, oppSide, tIdx, card.effect.damage);
-            oppBoard[tIdx].hp -= card.effect.damage;
-        } else {
-            triggerDamageAnimation(side, null, oppSide, null, card.effect.damage);
-            gameState[oppSide].hp -= card.effect.damage;
-        }
-    }
-    if (card.effect.kill) {
-        if (targetIndex !== null && gameState[oppSide].board[targetIndex]) {
-            gameState[oppSide].board[targetIndex].hp = 0;
-        }
-    }
-
-    checkDeadCards();
-}
-
-// --- MISSING CORE FUNCTIONS ---
 function drawCard(side, amount = 1) {
     if (!gameState || !gameState[side]) return;
     for (let i = 0; i < amount; i++) {
